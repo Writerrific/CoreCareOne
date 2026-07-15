@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ChatMessage, ItemChoice } from "@/lib/types";
 
 /** Minimal formatter: **bold** and _italic_ only. Input is our own copy, not user HTML. */
@@ -34,13 +34,18 @@ export function Chat({
   messages,
   pendingChoices,
   onAnswer,
+  onSkip,
+  onFreeText,
   busy,
 }: {
   messages: ChatMessage[];
   pendingChoices: ItemChoice[] | null;
   onAnswer: (value: number, label: string) => void;
+  onSkip: () => void;
+  onFreeText: (text: string) => void;
   busy: boolean;
 }) {
+  const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     // Scroll only the chat container, never the whole page.
@@ -66,7 +71,7 @@ export function Chat({
       </div>
 
       {pendingChoices && !busy && (
-        <div className="border-t border-slate-100 p-4">
+        <div className="space-y-3 border-t border-slate-100 p-4">
           <div className="flex flex-wrap gap-2">
             {pendingChoices.map((c) => (
               <button
@@ -77,7 +82,40 @@ export function Chat({
                 {c.label}
               </button>
             ))}
+            <button
+              onClick={onSkip}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-400 transition hover:bg-slate-50 hover:text-slate-600"
+              title="Skip this question"
+            >
+              Skip
+            </button>
           </div>
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const t = draft.trim();
+              if (t) {
+                onFreeText(t);
+                setDraft("");
+              }
+            }}
+            className="flex items-center gap-2"
+          >
+            <input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="Or tell me anything in your own words…"
+              className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-core-400 focus:bg-white focus:ring-2 focus:ring-core-100"
+            />
+            <button
+              type="submit"
+              disabled={!draft.trim()}
+              className="shrink-0 rounded-xl bg-slate-700 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-40"
+            >
+              Send
+            </button>
+          </form>
         </div>
       )}
     </div>

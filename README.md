@@ -57,8 +57,13 @@ That separation is what makes it defensible enough to sit in a real clinic's wor
 - **Longitudinal memory.** Use the same name across visits and the companion greets you back, carries
   forward areas that were elevated last time, and charts each instrument's **trajectory** across
   check-ins (PHQ-9 24 → 8 → …). The trend — not any single score — is the clinical payoff.
+- **Answer, skip, or just talk.** Every question can be answered, **skipped** (recorded and flagged
+  in the brief, never silently assumed), or set aside entirely — a persistent **free-text box** lets
+  the patient add anything in their own words at any point. The companion interprets that note,
+  surfaces traceable signals, weaves in the relevant screeners, and trips the **safety** path if the
+  text warrants it — all without losing the patient's place.
 - **Care-Signal Ledger** — a transparent, real-time panel where every signal cites its source
-  (`GAD-7 · item 3`). Trust for the patient, an audit trail for the clinician.
+  (`GAD-7 · item 3`, `free text`, `adaptive follow-up`). Trust for the patient, an audit trail for the clinician.
 - **Stratified risk** across five tiers (`minimal → low → moderate → high → urgent`), never a
   binary "positive/negative."
 - **Hard safety rails.** Any endorsed safety item (e.g. PHQ-9 item 9) instantly halts screening,

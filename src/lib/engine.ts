@@ -30,7 +30,7 @@ import {
   tierRank,
 } from "./risk";
 import { createSession, newMessageId, saveSession } from "./session";
-import { understandSituation, warmItemPhrasing, writeBriefs } from "./anthropic";
+import { interpretFreeText, understandSituation, warmItemPhrasing, writeBriefs } from "./anthropic";
 import {
   computeTrajectories,
   getPatient,
@@ -205,31 +205,41 @@ function daysAgo(then: number): string {
   return `${Math.round(d / 30)} months ago`;
 }
 
+const CRISIS_MESSAGE =
+  "Thanks for telling me. That's important, and it's worth talking to a real person now rather than working through it here. " +
+  "**In the U.S. you can call or text 988 anytime** for the Suicide & Crisis Lifeline (free, 24/7), or call 911 if you're in immediate danger. " +
+  "Core Care can also connect you with someone today. You don't have to handle this alone.";
+
+/**
+ * Add a domain's default instrument to the pathway if it isn't already planned.
+ * Keeps a not-yet-reached safety check last by inserting ahead of it.
+ */
+function addDomainToPathway(session: Session, d: Domain): boolean {
+  const inst = instrumentForDomain(d);
+  if (!inst || session.plannedInstrumentIds.includes(inst.id)) return false;
+  const safetyIdx = session.plannedInstrumentIds.indexOf("safety");
+  if (d !== "safety" && safetyIdx > session.cursor.instrumentIndex) {
+    session.plannedInstrumentIds.splice(safetyIdx, 0, inst.id);
+    const sPath = session.pathway.indexOf("safety");
+    if (sPath !== -1) session.pathway.splice(sPath, 0, d);
+    else session.pathway.push(d);
+  } else {
+    session.plannedInstrumentIds.push(inst.id);
+    session.pathway.push(d);
+  }
+  return true;
+}
+
 /**
  * Adaptive in-conversation pathway expansion. When a completed instrument
  * signals a related concern, weave in the relevant screener mid-session — the
- * companion follows the person's answers instead of a fixed script. Returns the
- * domains newly added (for transparency).
+ * companion follows the person's answers instead of a fixed script.
  */
 function expandPathway(session: Session): Domain[] {
-  const results = computeResults(session.answers);
+  const results = computeResults(session.answers, session.skipped);
   const added: Domain[] = [];
-
   const addDomain = (d: Domain) => {
-    const inst = instrumentForDomain(d);
-    if (!inst || session.plannedInstrumentIds.includes(inst.id)) return;
-    // Keep a not-yet-reached safety check last by inserting ahead of it.
-    const safetyIdx = session.plannedInstrumentIds.indexOf("safety");
-    if (d !== "safety" && safetyIdx > session.cursor.instrumentIndex) {
-      session.plannedInstrumentIds.splice(safetyIdx, 0, inst.id);
-      const sPath = session.pathway.indexOf("safety");
-      if (sPath !== -1) session.pathway.splice(sPath, 0, d);
-      else session.pathway.push(d);
-    } else {
-      session.plannedInstrumentIds.push(inst.id);
-      session.pathway.push(d);
-    }
-    added.push(d);
+    if (addDomainToPathway(session, d)) added.push(d);
   };
 
   for (const r of results) {
@@ -244,6 +254,86 @@ function expandPathway(session: Session): Domain[] {
     if ((r.domain === "mood" || r.domain === "trauma") && t >= 1) addDomain("safety");
   }
   return added;
+}
+
+/** "a", "a and b", or "a, b, and c". */
+function joinList(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
+function contextString(session: Session): string {
+  return (
+    (session.context.situationText ? `situation: ${session.context.situationText}. ` : "") +
+    (session.context.tags.length ? `tags: ${session.context.tags.join(", ")}.` : "")
+  );
+}
+
+/** Route into the safety phase: crisis message, freeze results, persist. */
+function enterSafety(session: Session): void {
+  session.safetyTriggered = true;
+  session.phase = "safety";
+  session.messages.push(msg({ speaker: "companion", text: CRISIS_MESSAGE }));
+  session.results = computeResults(session.answers, session.skipped);
+  session.overallTier = "urgent";
+  persistSummary(session);
+}
+
+/**
+ * Shared tail for answering OR skipping the current item: leave-instrument
+ * bookkeeping, adaptive expansion, then either ask the next item or finalize.
+ */
+async function continueAfterCurrent(session: Session, prevInstrumentId: string): Promise<void> {
+  const advanced = advanceCursor(session);
+  const crossedInstrument = !advanced || currentInstrument(session)?.id !== prevInstrumentId;
+
+  if (crossedInstrument) {
+    const finished = getInstrument(prevInstrumentId);
+    if (finished && session.answers.some((a) => a.instrumentId === finished.id)) {
+      session.signals.push(signalForResult(scoreInstrument(finished, session.answers, session.skipped)));
+    }
+    const added = expandPathway(session);
+    if (added.length) {
+      const labels = joinList(added.map((d) => DOMAIN_LABEL[d]));
+      session.signals.push({
+        id: `sig_expand_${Date.now()}`,
+        domain: added[0],
+        text: `Your answers point at ${labels}, so I added a few questions.`,
+        tier: "low",
+        source: "adaptive follow-up",
+        at: Date.now(),
+      });
+      session.messages.push(
+        msg({
+          speaker: "companion",
+          text: `A few of your answers point at ${labels}, so I'll ask a couple more about that. Skip any you'd rather not.`,
+        }),
+      );
+    }
+  }
+
+  session.overallTier = overallTier(computeResults(session.answers, session.skipped));
+
+  const nextInstrument = currentInstrument(session);
+  const nextItem = nextInstrument?.items[session.cursor.itemIndex];
+  if (nextInstrument && nextItem) {
+    const next = await emitCurrentItem(session, crossedInstrument);
+    if (next) session.messages.push(next);
+  } else {
+    session.phase = "summary";
+    session.results = computeResults(session.answers, session.skipped);
+    session.overallTier = overallTier(session.results);
+    session.messages.push(
+      msg({
+        speaker: "companion",
+        text:
+          "That's all my questions. Thanks for being straight with me. I've pulled together a short summary for you and a " +
+          "brief for your Core Care team. Let's take a look, then sort out whether to book a visit.",
+      }),
+    );
+    persistSummary(session);
+  }
 }
 
 /** Record an answer to the current item and produce the next companion turn. */
@@ -279,85 +369,98 @@ export async function submitAnswer(
 
   // Immediate safety routing on any endorsed safety-critical item.
   if (item.safetyCritical && value > 0) {
-    session.safetyTriggered = true;
-    session.phase = "safety";
-    session.messages.push(
-      msg({
-        speaker: "companion",
-        text:
-          "Thanks for telling me. That's important, and it's worth talking to a real person now rather than working through it here. " +
-          "**In the U.S. you can call or text 988 anytime** for the Suicide & Crisis Lifeline (free, 24/7), or call 911 if you're in immediate danger. " +
-          "Core Care can also connect you with someone today. You don't have to handle this alone.",
-      }),
-    );
-    session.results = computeResults(session.answers);
-    session.overallTier = "urgent";
-    persistSummary(session);
+    enterSafety(session);
     return saveSession(session);
   }
 
-  const prevInstrumentId = instrument.id;
-  const advanced = advanceCursor(session);
-  const crossedInstrument = !advanced || currentInstrument(session)?.id !== prevInstrumentId;
+  await continueAfterCurrent(session, instrument.id);
+  return saveSession(session);
+}
 
-  // When we leave an instrument: record its band, then adaptively decide whether
-  // its result warrants weaving in a related screener.
-  if (crossedInstrument) {
-    const finished = getInstrument(prevInstrumentId);
-    if (finished && session.answers.some((a) => a.instrumentId === finished.id)) {
-      session.signals.push(signalForResult(scoreInstrument(finished, session.answers)));
-    }
-    const added = expandPathway(session);
-    if (added.length) {
-      const labels = added.map((d) => DOMAIN_LABEL[d]).join(" and ");
-      session.signals.push({
-        id: `sig_expand_${Date.now()}`,
-        domain: added[0],
-        text: `Your answers point at ${labels}, so I added a few questions.`,
-        tier: "low",
-        source: "adaptive follow-up",
-        at: Date.now(),
-      });
-      session.messages.push(
-        msg({
-          speaker: "companion",
-          text: `A few of your answers point at ${labels}, so I'll ask a couple more about that. Skip any you'd rather not.`,
-        }),
-      );
-    }
-  }
-
-  // Keep the overall meter honest and live as instruments accumulate.
-  session.overallTier = overallTier(computeResults(session.answers));
-
-  // After any expansion, is there still an item to ask?
-  const nextInstrument = currentInstrument(session);
-  const nextItem = nextInstrument?.items[session.cursor.itemIndex];
-  if (nextInstrument && nextItem) {
-    const next = await emitCurrentItem(session, crossedInstrument);
-    if (next) session.messages.push(next);
-  } else {
+/** Skip the current item without recording an answer, and move on. */
+export async function skipItem(session: Session): Promise<Session> {
+  if (session.phase !== "screening") return session;
+  const instrument = currentInstrument(session);
+  const item = instrument?.items[session.cursor.itemIndex];
+  if (!instrument || !item) {
     session.phase = "summary";
-    session.results = computeResults(session.answers);
-    session.overallTier = overallTier(session.results);
-    session.messages.push(
-      msg({
-        speaker: "companion",
-        text:
-          "That's all my questions. Thanks for being straight with me. I've pulled together a short summary for you and a " +
-          "brief for your Core Care team. Let's take a look, then sort out whether to book a visit.",
-      }),
-    );
-    persistSummary(session);
+    return saveSession(session);
   }
 
+  if (!session.skipped.includes(item.id)) session.skipped.push(item.id);
+  session.messages.push(msg({ speaker: "patient", text: "Skipped" }));
+  session.signals.push({
+    id: `sig_skip_${item.id}_${Date.now()}`,
+    domain: instrument.domain,
+    text: `Skipped: ${item.prompt.toLowerCase()}`,
+    tier: "minimal",
+    source: `${instrument.shortName} · skipped`,
+    at: Date.now(),
+  });
+
+  await continueAfterCurrent(session, instrument.id);
+  return saveSession(session);
+}
+
+/**
+ * Open-ended free text. The companion interprets what the person wrote, updates
+ * the ledger, and adapts the pathway — without losing their place. The current
+ * question stays pending (it is restated) so they can still answer it.
+ */
+export async function submitFreeText(session: Session, text: string): Promise<Session> {
+  if (session.phase !== "screening") return session;
+  const trimmed = text.trim().slice(0, 1000);
+  if (trimmed.length < 2) return session;
+
+  session.messages.push(msg({ speaker: "patient", text: trimmed }));
+  const interpreted = await interpretFreeText(trimmed, contextString(session));
+
+  // Safety takes precedence over everything.
+  if (interpreted.safety) {
+    session.signals.push({
+      id: `sig_ftsafety_${Date.now()}`,
+      domain: "safety",
+      text: "Raised a possible safety concern in their own words.",
+      tier: "urgent",
+      source: "free text",
+      at: Date.now(),
+    });
+    enterSafety(session);
+    return saveSession(session);
+  }
+
+  // Surface whatever the interpretation picked up, traceable to "free text".
+  for (const s of interpreted.signals) {
+    session.signals.push({
+      id: `sig_ft_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      domain: s.domain,
+      text: s.text,
+      tier: s.tier,
+      source: "free text",
+      at: Date.now(),
+    });
+  }
+
+  // Adapt the pathway to any new areas they raised.
+  const added: Domain[] = [];
+  for (const d of interpreted.domains) if (addDomainToPathway(session, d)) added.push(d);
+
+  let ack = interpreted.acknowledgement || "Thanks, I've noted that.";
+  if (added.length) ack += ` I'll add a few questions about ${joinList(added.map((d) => DOMAIN_LABEL[d]))}.`;
+  session.messages.push(msg({ speaker: "companion", text: ack }));
+
+  // Restate the current question so the answer buttons have clear context again.
+  const restated = await emitCurrentItem(session, false);
+  if (restated) session.messages.push(restated);
+
+  session.overallTier = overallTier(computeResults(session.answers, session.skipped));
   return saveSession(session);
 }
 
 /** Persist a completed session to the patient's longitudinal record (named patients only). */
 function persistSummary(session: Session): void {
   if (!session.patientId || session.patientId.startsWith("anon_")) return;
-  const results = session.results.length ? session.results : computeResults(session.answers);
+  const results = session.results.length ? session.results : computeResults(session.answers, session.skipped);
   const tier = session.safetyTriggered ? "urgent" : overallTier(results);
   const summary = summarize(
     session.id,
@@ -380,7 +483,7 @@ function recommendScheduling(session: Session): SchedulingRecommendation {
     };
   }
 
-  const results = session.results.length ? session.results : computeResults(session.answers);
+  const results = session.results.length ? session.results : computeResults(session.answers, session.skipped);
   const tier = overallTier(results);
 
   const behavioralDomains: Domain[] = ["mood", "anxiety", "trauma", "alcohol", "stress"];
@@ -438,7 +541,7 @@ export function visitTypeLabel(v: VisitType): string {
 
 /** Compute both briefs + scheduling recommendation for a completed session. */
 export async function generateBriefs(session: Session): Promise<Briefs> {
-  const results = session.results.length ? session.results : computeResults(session.answers);
+  const results = session.results.length ? session.results : computeResults(session.answers, session.skipped);
   const tier = session.safetyTriggered ? "urgent" : overallTier(results);
 
   const redFlags: string[] = [];

@@ -156,7 +156,12 @@ export function BriefView({ briefs, safetyTriggered }: { briefs: Briefs; safetyT
                       <td className="py-1.5 pr-2 tabular-nums text-slate-500">
                         {r.score}/{r.maxScore}
                       </td>
-                      <td className="py-1.5 text-slate-600">{r.band.label}</td>
+                      <td className="py-1.5 text-slate-600">
+                        {r.band.label}
+                        {r.skipped > 0 && (
+                          <span className="ml-1 text-amber-600">· {r.skipped} skipped</span>
+                        )}
+                      </td>
                       <td className="py-1.5 pl-2 text-right">
                         <span
                           className="inline-block h-2 w-2 rounded-full"

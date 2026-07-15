@@ -46,51 +46,51 @@ export default function CompanionPage() {
     }
   }, []);
 
-  const answer = useCallback(
-    async (value: number, label: string) => {
+  // Shared path for answer / skip / free-text: optimistic patient bubble, POST,
+  // roll back on failure, and drop to intake if the session has expired.
+  const sendTurn = useCallback(
+    async (url: string, extra: Record<string, unknown>, optimisticText: string, failMsg: string) => {
       if (!session) return;
       setBusy(true);
       setError(null);
-      // Optimistic: show the patient's choice immediately, tagged so we can
-      // roll it back if the server call fails (otherwise ghost bubbles pile up).
       const optimisticId = `local_${Date.now()}`;
       setSession((prev) =>
         prev
-          ? {
-              ...prev,
-              messages: [
-                ...prev.messages,
-                { id: optimisticId, speaker: "patient", text: label, at: Date.now() },
-              ],
-            }
+          ? { ...prev, messages: [...prev.messages, { id: optimisticId, speaker: "patient", text: optimisticText, at: Date.now() }] }
           : prev,
       );
       try {
-        const { session: updated } = await postJSON<{ session: Session }>("/api/turn", {
-          sessionId: session.id,
-          value,
-          label,
-        });
+        const { session: updated } = await postJSON<{ session: Session }>(url, { sessionId: session.id, ...extra });
         setSession(updated);
       } catch (e) {
-        // Roll back the optimistic bubble so the UI reflects reality.
         setSession((prev) =>
           prev ? { ...prev, messages: prev.messages.filter((m) => m.id !== optimisticId) } : prev,
         );
         if (e instanceof HttpError && e.status === 404) {
-          // Session is gone (e.g. server restart). Drop back to the intake screen
-          // so there's a clear way forward instead of a dead chat.
           setSession(null);
           setBriefs(null);
           setError("That check-in timed out, so we'll start fresh. Nothing you shared was stored.");
         } else {
-          setError("Something went wrong saving that answer. Please try again.");
+          setError(failMsg);
         }
       } finally {
         setBusy(false);
       }
     },
     [session],
+  );
+
+  const answer = useCallback(
+    (value: number, label: string) => sendTurn("/api/turn", { value, label }, label, "Something went wrong saving that answer. Please try again."),
+    [sendTurn],
+  );
+  const skip = useCallback(
+    () => sendTurn("/api/skip", {}, "Skipped", "Something went wrong skipping. Please try again."),
+    [sendTurn],
+  );
+  const freeText = useCallback(
+    (text: string) => sendTurn("/api/freetext", { text }, text, "Something went wrong sending that. Please try again."),
+    [sendTurn],
   );
 
   // Auto-generate briefs when the conversation reaches summary or safety.
@@ -162,6 +162,8 @@ export default function CompanionPage() {
                 messages={session.messages}
                 pendingChoices={pendingChoices}
                 onAnswer={answer}
+                onSkip={skip}
+                onFreeText={freeText}
                 busy={busy || loadingBriefs}
               />
             </div>

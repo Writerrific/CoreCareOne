@@ -78,6 +78,7 @@ export interface InstrumentResult {
   band: ScoreBand;
   answered: number;
   total: number;
+  skipped: number; // count of this instrument's items the patient chose to skip
   safetyFlags: string[]; // ids of safety-critical items answered non-zero
 }
 
@@ -144,6 +145,8 @@ export interface Session {
   cursor: { instrumentIndex: number; itemIndex: number };
   messages: ChatMessage[];
   answers: Answer[];
+  /** Item ids the patient explicitly skipped (not the same as pre-screen auto-skips). */
+  skipped: string[];
   signals: CareSignal[];
   results: InstrumentResult[];
   overallTier: RiskTier;

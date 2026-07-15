@@ -94,8 +94,38 @@ const DOMAIN_KEYWORDS: Record<Domain, string[]> = {
   alcohol: ["drink", "drinking", "alcohol", "hungover", "hangover", "wine", "beer", "booze", "substance", "weed", "using"],
   trauma: ["trauma", "ptsd", "flashback", "nightmare", "assault", "abuse", "accident", "attack", "violence", "grief", "loss"],
   energy: ["energy", "fatigue", "performance", "recovery", "training", "workout", "athlete", "run", "gym", "run-down", "appetite", "weight"],
-  safety: ["suicid", "self-harm", "self harm", "hurt myself", "end it", "better off dead", "kill myself", "no reason to live"],
+  safety: [
+    "suicid",
+    "self-harm",
+    "self harm",
+    "hurt myself",
+    "harm myself",
+    "kill myself",
+    "end it all",
+    "end my life",
+    "take my life",
+    "want to die",
+    "better off dead",
+    "better off without me",
+    "everyone would be better off",
+    "don't want to be here",
+    "dont want to be here",
+    "wish i wasn't here",
+    "wish i wasnt here",
+    "no reason to live",
+    "not worth living",
+    "can't go on",
+    "cant go on",
+    "want to disappear",
+  ],
 };
+
+// Offline safety-net: does a free-text note contain any explicit safety phrase?
+// A keyword net is coarse (the LLM path is better), so it errs toward catching more.
+export function mentionsSafetyConcern(text: string): boolean {
+  const lower = ` ${text.toLowerCase()} `;
+  return DOMAIN_KEYWORDS.safety.some((kw) => lower.includes(kw));
+}
 
 /**
  * Deterministic offline matcher: single best-matching template (kept for the

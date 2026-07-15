@@ -36,8 +36,12 @@ export function bandForScore(instrument: Instrument, score: number): ScoreBand {
   return band ?? instrument.bands[instrument.bands.length - 1];
 }
 
-/** Sum recorded answers for a given instrument. */
-export function scoreInstrument(instrument: Instrument, answers: Answer[]): InstrumentResult {
+/** Sum recorded answers for a given instrument. Skipped items simply aren't scored. */
+export function scoreInstrument(
+  instrument: Instrument,
+  answers: Answer[],
+  skipped: string[] = [],
+): InstrumentResult {
   const relevant = answers.filter((a) => a.instrumentId === instrument.id);
   const score = relevant.reduce((sum, a) => sum + a.value, 0);
   const maxScore = instrument.items.reduce(
@@ -51,6 +55,9 @@ export function scoreInstrument(instrument: Instrument, answers: Answer[]): Inst
     .filter((a) => safetyItemIds.has(a.itemId) && a.value > 0)
     .map((a) => a.itemId);
 
+  const skippedSet = new Set(skipped);
+  const skippedCount = instrument.items.filter((i) => skippedSet.has(i.id)).length;
+
   return {
     instrumentId: instrument.id,
     name: instrument.name,
@@ -61,20 +68,36 @@ export function scoreInstrument(instrument: Instrument, answers: Answer[]): Inst
     band,
     answered: relevant.length,
     total: instrument.items.length,
+    skipped: skippedCount,
     safetyFlags,
   };
 }
 
-/** Compute results for every instrument that has at least one answer. */
-export function computeResults(answers: Answer[]): InstrumentResult[] {
-  const ids = Array.from(new Set(answers.map((a) => a.instrumentId)));
+/** Compute results for every instrument that has at least one answer or skip. */
+export function computeResults(answers: Answer[], skipped: string[] = []): InstrumentResult[] {
+  const ids = new Set(answers.map((a) => a.instrumentId));
+  // Include instruments that were entirely skipped, too.
+  for (const itemId of skipped) {
+    const inst = instrumentForItem(itemId);
+    if (inst) ids.add(inst.id);
+  }
   const results: InstrumentResult[] = [];
   for (const id of ids) {
     const instrument = getInstrument(id);
     if (!instrument) continue;
-    results.push(scoreInstrument(instrument, answers));
+    results.push(scoreInstrument(instrument, answers, skipped));
   }
   return results;
+}
+
+/** Find which instrument owns a given item id. */
+function instrumentForItem(itemId: string): Instrument | undefined {
+  // itemId is prefixed with the instrument id (e.g. "phq9_9" -> "phq9").
+  const base = itemId.split("_")[0];
+  const inst = getInstrument(base);
+  if (inst) return inst;
+  // Fallback: scan.
+  return undefined;
 }
 
 /** Overall session tier = highest band tier across results, floored by any safety flag. */

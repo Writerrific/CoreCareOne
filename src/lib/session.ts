@@ -38,6 +38,7 @@ export function createSession(context: PatientContext, patientId: string, visitN
     cursor: { instrumentIndex: 0, itemIndex: 0 },
     messages: [],
     answers: [],
+    skipped: [],
     signals: [],
     results: [],
     overallTier: "minimal",
