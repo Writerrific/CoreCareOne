@@ -8,13 +8,21 @@ import { SignalLedger } from "@/components/SignalLedger";
 import { BriefView } from "@/components/BriefView";
 import { IntakeForm, type IntakePayload } from "@/components/IntakeForm";
 
+class HttpError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
 async function postJSON<T>(url: string, body: unknown): Promise<T> {
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`${url} failed: ${res.status}`);
+  if (!res.ok) throw new HttpError(res.status, `${url} failed: ${res.status}`);
   return res.json();
 }
 
@@ -43,14 +51,16 @@ export default function CompanionPage() {
       if (!session) return;
       setBusy(true);
       setError(null);
-      // Optimistic: show the patient's choice immediately.
+      // Optimistic: show the patient's choice immediately, tagged so we can
+      // roll it back if the server call fails (otherwise ghost bubbles pile up).
+      const optimisticId = `local_${Date.now()}`;
       setSession((prev) =>
         prev
           ? {
               ...prev,
               messages: [
                 ...prev.messages,
-                { id: `local_${Date.now()}`, speaker: "patient", text: label, at: Date.now() },
+                { id: optimisticId, speaker: "patient", text: label, at: Date.now() },
               ],
             }
           : prev,
@@ -62,8 +72,16 @@ export default function CompanionPage() {
           label,
         });
         setSession(updated);
-      } catch {
-        setError("I couldn't record that answer. Please try again.");
+      } catch (e) {
+        // Roll back the optimistic bubble so the UI reflects reality.
+        setSession((prev) =>
+          prev ? { ...prev, messages: prev.messages.filter((m) => m.id !== optimisticId) } : prev,
+        );
+        if (e instanceof HttpError && e.status === 404) {
+          setError("Your session expired (the server may have restarted). Please start a new check-in below.");
+        } else {
+          setError("I couldn't record that answer. Please try again.");
+        }
       } finally {
         setBusy(false);
       }

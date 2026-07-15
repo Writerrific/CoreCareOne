@@ -7,7 +7,17 @@
 
 import type { PatientContext, Session } from "./types";
 
-const store = new Map<string, Session>();
+// Pin the store to globalThis. In `next dev`, route handlers are compiled into
+// separate bundles and a plain module-level `const store = new Map()` gets
+// duplicated per route — so a session created in /api/session is invisible to
+// /api/turn (404 "Session not found"). Anchoring to globalThis gives every
+// route handler the same Map, and also survives hot-reload during development.
+// (Prototype-only: still single-process, in-memory — swap for a DB in prod.)
+const globalStore = globalThis as unknown as {
+  __corecareSessions?: Map<string, Session>;
+};
+const store: Map<string, Session> =
+  globalStore.__corecareSessions ?? (globalStore.__corecareSessions = new Map<string, Session>());
 
 function id(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
