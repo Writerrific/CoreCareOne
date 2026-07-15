@@ -83,8 +83,8 @@ export function TrajectoryChart({ trajectories }: { trajectories: Trajectory[] }
         ))}
       </div>
       <p className="mt-3 text-[11px] text-slate-400">
-        Higher = more of what the screener measures, so a line trending down means things are easing. Trends, not any
-        single score, are what your care team watches over time.
+        Higher means more of what the screener measures, so a line going down is usually a good sign. Your care team
+        watches the trend over time, not any single score.
       </p>
     </div>
   );

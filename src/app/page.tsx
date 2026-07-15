@@ -30,9 +30,9 @@ export default function Home() {
           Walk in already understood.
         </h1>
         <p className="mt-5 max-w-2xl text-lg leading-relaxed text-slate-600">
-          Tell CoreCareOne what&apos;s going on in your life — not a checklist of symptoms. It gently asks the{" "}
+          Tell CoreCareOne what&apos;s going on in your life, not a checklist of symptoms. It asks the{" "}
           <span className="font-medium text-slate-800">right validated questions</span> for your situation, shows you
-          exactly what it&apos;s noticing, and hands your care team a clear brief so your visit starts where you left off.
+          what it&apos;s picking up, and hands your care team a clear brief so your visit starts where you left off.
         </p>
 
         <div className="mt-8 flex flex-wrap items-center gap-4">
@@ -49,34 +49,34 @@ export default function Home() {
       <section className="mt-16 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Feature
           title="Situation-first, not symptom-first"
-          body="Describe your life — 'I'm an athlete and my times are slipping and I feel flat.' The companion composes a screening pathway from the domains that actually matter for you."
+          body="Describe your life ('I'm an athlete and my times are slipping and I feel flat') and the companion builds a screening pathway from the areas that matter for you."
         />
         <Feature
-          title="Grounded in validated instruments"
-          body="Every question comes from an established screener (PHQ-9, GAD-7, AUDIT-C, and more) with published scoring. The AI phrases things warmly; it never invents a score or a diagnosis."
+          title="Built on validated instruments"
+          body="Every question comes from an established screener (PHQ-9, GAD-7, AUDIT-C, and more) with published scoring. The AI handles the wording; it never invents a score or a diagnosis."
         />
         <Feature
-          title="A transparent Care-Signal Ledger"
-          body="As you talk, you see what the companion is noticing and why — each signal traces back to a specific question. Nothing is a black box."
+          title="A transparent signal ledger"
+          body="As you talk, you can see what the companion is picking up and why. Each signal traces back to a specific question, so nothing is a black box."
         />
         <Feature
           title="Risk is stratified, not binary"
-          body="Results land on a spectrum — minimal to needs-prompt-attention — so nuance survives. It's a starting point for a conversation, never a verdict."
+          body="Results land on a spectrum, from minimal to needs-prompt-attention, so the nuance survives. It's a starting point for a conversation, not a verdict."
         />
         <Feature
-          title="Safety first, always"
-          body="If anything you share suggests you're at risk, the companion stops screening and connects you to real people and the 988 Lifeline immediately. It never tries to be your therapist."
+          title="Safety first"
+          body="If something you share suggests you're at risk, the companion stops screening and points you to real people and the 988 Lifeline right away. It doesn't try to be your therapist."
         />
         <Feature
-          title="A warm handoff to your team"
-          body="You leave with a plain-language reflection; your clinician gets a concise pre-visit brief. For Core Care's integrated model, it even suggests medical, behavioral, or a combined visit."
+          title="A clear handoff to your team"
+          body="You leave with a plain-language summary; your clinician gets a short pre-visit brief. For Core Care's integrated model, it suggests a medical, behavioral, or combined visit."
         />
       </section>
 
       <section className="mt-16 rounded-2xl border border-amber-200 bg-amber-50 p-5">
         <h2 className="text-sm font-semibold text-amber-900">Important</h2>
         <p className="mt-2 text-sm leading-relaxed text-amber-800">
-          CoreCareOne is a preparation and screening companion — not a doctor, therapist, or diagnosis, and not for
+          CoreCareOne is a preparation and screening companion. It is not a doctor, therapist, or diagnosis, and not for
           emergencies. If you&apos;re in crisis or thinking about harming yourself, call or text{" "}
           <span className="font-semibold">988</span> (U.S. Suicide &amp; Crisis Lifeline) or call{" "}
           <span className="font-semibold">911</span> right now.

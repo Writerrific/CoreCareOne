@@ -25,8 +25,8 @@ export function IntakeForm({ onStart, busy }: { onStart: (p: IntakePayload) => v
     <div className="mx-auto max-w-2xl">
       <h1 className="text-2xl font-bold text-slate-900">Let&apos;s start with you.</h1>
       <p className="mt-2 text-sm leading-relaxed text-slate-600">
-        In your own words, what&apos;s going on lately? There are no wrong answers — a sentence is plenty. Pick a starting
-        point below or just type.
+        In your own words, what&apos;s been going on lately? A sentence is plenty. Pick a starting point below, or just
+        type.
       </p>
 
       <div className="mt-6">
@@ -40,7 +40,7 @@ export function IntakeForm({ onStart, busy }: { onStart: (p: IntakePayload) => v
           className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm outline-none focus:border-core-500 focus:ring-2 focus:ring-core-100"
         />
         <p className="mt-1 text-xs text-slate-400">
-          Use the same first name each time — I&apos;ll remember your progress and chart how things change across check-ins.
+          Use the same first name each visit and I&apos;ll track how things change over time.
         </p>
       </div>
 

@@ -78,9 +78,13 @@ export default function CompanionPage() {
           prev ? { ...prev, messages: prev.messages.filter((m) => m.id !== optimisticId) } : prev,
         );
         if (e instanceof HttpError && e.status === 404) {
-          setError("Your session expired (the server may have restarted). Please start a new check-in below.");
+          // Session is gone (e.g. server restart). Drop back to the intake screen
+          // so there's a clear way forward instead of a dead chat.
+          setSession(null);
+          setBriefs(null);
+          setError("That check-in timed out, so we'll start fresh. Nothing you shared was stored.");
         } else {
-          setError("I couldn't record that answer. Please try again.");
+          setError("Something went wrong saving that answer. Please try again.");
         }
       } finally {
         setBusy(false);
@@ -133,10 +137,8 @@ export default function CompanionPage() {
         {session && briefs && (
           <div>
             <div className="mb-6 text-center">
-              <h1 className="text-2xl font-bold text-slate-900">Here&apos;s what we put together</h1>
-              <p className="mt-1 text-sm text-slate-500">
-                Yours to keep — and ready for your Core Care team when you are.
-              </p>
+              <h1 className="text-2xl font-bold text-slate-900">Here&apos;s your summary</h1>
+              <p className="mt-1 text-sm text-slate-500">Yours to keep, and ready for your Core Care team.</p>
             </div>
             <BriefView briefs={briefs} safetyTriggered={session.safetyTriggered} />
             <div className="mt-8 text-center">
@@ -154,8 +156,8 @@ export default function CompanionPage() {
         )}
 
         {session && !briefs && (
-          <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
-            <div className="flex h-[calc(100vh-180px)] min-h-[480px] flex-col rounded-2xl border border-slate-200 bg-white">
+          <div className="grid gap-4 lg:grid-cols-[1fr_340px] lg:gap-6">
+            <div className="flex h-[68vh] min-h-[420px] flex-col rounded-2xl border border-slate-200 bg-white lg:h-[calc(100vh-150px)]">
               <Chat
                 messages={session.messages}
                 pendingChoices={pendingChoices}
@@ -163,7 +165,7 @@ export default function CompanionPage() {
                 busy={busy || loadingBriefs}
               />
             </div>
-            <div className="h-[calc(100vh-180px)] min-h-[480px]">
+            <div className="h-[46vh] min-h-[300px] lg:h-[calc(100vh-150px)]">
               <SignalLedger signals={session.signals} overallTier={session.overallTier} />
             </div>
           </div>

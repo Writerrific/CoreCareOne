@@ -41,14 +41,16 @@ export function Chat({
   onAnswer: (value: number, label: string) => void;
   busy: boolean;
 }) {
-  const endRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Scroll only the chat container, never the whole page.
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages.length, busy]);
 
   return (
     <div className="flex h-full flex-col">
-      <div className="calm-scroll flex-1 space-y-3 overflow-y-auto p-4">
+      <div ref={scrollRef} className="calm-scroll flex-1 space-y-3 overflow-y-auto p-4">
         {messages.map((m) => (
           <Bubble key={m.id} m={m} />
         ))}
@@ -61,7 +63,6 @@ export function Chat({
             </div>
           </div>
         )}
-        <div ref={endRef} />
       </div>
 
       {pendingChoices && !busy && (

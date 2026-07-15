@@ -51,19 +51,19 @@ const DOMAIN_LABEL: Record<Domain, string> = {
 };
 
 const DOMAIN_INTRO: Record<Domain, string> = {
-  energy: "Let's start with your energy and recovery.",
+  energy: "Let's start with energy and recovery.",
   sleep: "A few about sleep.",
-  stress: "Now a couple about stress.",
+  stress: "Now some about stress.",
   anxiety: "Now a few about worry and anxiety.",
-  alcohol: "A quick, confidential check about alcohol.",
+  alcohol: "A quick, private check about alcohol.",
   mood: "Now a few about mood. Take your time.",
-  trauma: "These next ones are about difficult experiences — go at your own pace.",
-  safety: "One caring check before we wrap up.",
+  trauma: "These next few are about difficult experiences. Go at your own pace.",
+  safety: "One last check before we wrap up.",
 };
 
 const DISCLAIMER =
-  "I'm a companion that helps you prepare for your visit — not a doctor or therapist, and this isn't a diagnosis. " +
-  "Everything you share is to help your Core Care team help you faster. If anything ever feels urgent, call 988 or 911.";
+  "Before we start: I help you get ready for your visit. I'm not a doctor or therapist, and this isn't a diagnosis. " +
+  "What you share goes to your Core Care team so your appointment can pick up where you leave off. If anything feels urgent, call 988 or 911.";
 
 function msg(partial: Omit<ChatMessage, "id" | "at">): ChatMessage {
   return { id: newMessageId(), at: Date.now(), ...partial };
@@ -137,7 +137,7 @@ export async function startSession(context: PatientContext, patientId: string): 
   const session = createSession(context, patientId, priorCount + 1);
 
   session.messages.push(
-    msg({ speaker: "companion", text: `Hi${context.displayName ? ` ${context.displayName}` : ""} — I'm glad you're here. ${DISCLAIMER}` }),
+    msg({ speaker: "companion", text: `Hi${context.displayName ? ` ${context.displayName}` : ""}. ${DISCLAIMER}` }),
   );
 
   const situationText = context.situationText?.trim() || "general check-in";
@@ -161,9 +161,9 @@ export async function startSession(context: PatientContext, patientId: string): 
       msg({
         speaker: "companion",
         text:
-          `Welcome back — this is check-in #${session.visitNumber}. ${whenAgo ? `Last time (${whenAgo}), ` : "Last time, "}` +
+          `Welcome back. This is check-in #${session.visitNumber}. ${whenAgo ? `Last time (${whenAgo}), ` : "Last time, "}` +
           `${lastTop ? `${DOMAIN_LABEL[lastTop.domain as Domain]} stood out most. ` : ""}` +
-          `Let's see how things have shifted since then.`,
+          `Let's see what's changed.`,
       }),
     );
   }
@@ -177,8 +177,8 @@ export async function startSession(context: PatientContext, patientId: string): 
     id: `sig_pathway_${session.createdAt}`,
     domain: session.pathway[0] ?? "mood",
     text:
-      `Composed a ${session.pathway.length}-area pathway from what you shared: ${session.pathway.map((d) => DOMAIN_LABEL[d]).join(", ")}.` +
-      (carried.length ? ` (Re-checking ${carried.map((d) => DOMAIN_LABEL[d]).join(" & ")} from your last visit.)` : ""),
+      `Focused on ${session.pathway.length} areas from what you told me: ${session.pathway.map((d) => DOMAIN_LABEL[d]).join(", ")}.` +
+      (carried.length ? ` Re-checking ${carried.map((d) => DOMAIN_LABEL[d]).join(" & ")} from your last visit.` : ""),
     tier: "minimal",
     source: `situation${carried.length ? " + history" : ""} → pathway`,
     at: Date.now(),
@@ -285,10 +285,9 @@ export async function submitAnswer(
       msg({
         speaker: "companion",
         text:
-          "Thank you for telling me that — I really mean it. What you just shared is important enough that the best next step " +
-          "is talking with a real person, not a screen. **If you're in the U.S., you can call or text 988 right now** to reach the " +
-          "Suicide & Crisis Lifeline (free, 24/7), or call 911 if you're in immediate danger. I can also help you reach Core Care Clinic today. " +
-          "You are not a burden, and you don't have to carry this alone.",
+          "Thanks for telling me. That's important, and it's worth talking to a real person now rather than working through it here. " +
+          "**In the U.S. you can call or text 988 anytime** for the Suicide & Crisis Lifeline (free, 24/7), or call 911 if you're in immediate danger. " +
+          "Core Care can also connect you with someone today. You don't have to handle this alone.",
       }),
     );
     session.results = computeResults(session.answers);
@@ -314,7 +313,7 @@ export async function submitAnswer(
       session.signals.push({
         id: `sig_expand_${Date.now()}`,
         domain: added[0],
-        text: `Your answers opened up ${labels} — I wove in a few more questions.`,
+        text: `Your answers point at ${labels}, so I added a few questions.`,
         tier: "low",
         source: "adaptive follow-up",
         at: Date.now(),
@@ -322,7 +321,7 @@ export async function submitAnswer(
       session.messages.push(
         msg({
           speaker: "companion",
-          text: `A couple of your answers made me want to check one more thing — I'll add a few quick questions about ${labels}. Still optional.`,
+          text: `A few of your answers point at ${labels}, so I'll ask a couple more about that. Skip any you'd rather not.`,
         }),
       );
     }
@@ -345,9 +344,8 @@ export async function submitAnswer(
       msg({
         speaker: "companion",
         text:
-          "That's everything I wanted to ask — thank you for your honesty. I've put together a short summary for you and a " +
-          "clinical brief your Core Care team can read before your visit. Let's look at it together, and then we'll figure out " +
-          "whether booking a visit makes sense.",
+          "That's all my questions. Thanks for being straight with me. I've pulled together a short summary for you and a " +
+          "brief for your Core Care team. Let's take a look, then sort out whether to book a visit.",
       }),
     );
     persistSummary(session);
@@ -405,9 +403,9 @@ function recommendScheduling(session: Session): SchedulingRecommendation {
 
   const rationale =
     tier === "minimal"
-      ? "Signals were minimal. A visit is optional — but you're always welcome to book a routine check-in, and this summary will be waiting."
-      : `Your strongest signals suggest starting with ${visitTypeLabel(visitType).toLowerCase()}. ` +
-        `Given an overall level of "${tierLabel(tier).toLowerCase()}", ${urgencyPhrase(urgency)}.`;
+      ? "Signals were low. A visit is optional. You can book a routine check-in anytime, and this summary will be waiting."
+      : `Your strongest signals point to ${visitTypeLabel(visitType).toLowerCase()}. ` +
+        `With an overall level of ${tierLabel(tier).toLowerCase()}, ${urgencyPhrase(urgency)}.`;
 
   return { visitType, urgency, rationale };
 }

@@ -14,9 +14,7 @@ export function SignalLedger({ signals, overallTier }: { signals: CareSignal[]; 
     <aside className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white">
       <div className="border-b border-slate-100 p-4">
         <h2 className="text-sm font-semibold text-slate-900">Care-Signal Ledger</h2>
-        <p className="mt-1 text-xs text-slate-500">
-          What I&apos;m noticing, and exactly why. Nothing hidden.
-        </p>
+        <p className="mt-1 text-xs text-slate-500">What I&apos;m picking up, and why.</p>
         <div className="mt-4">
           <TierMeter tier={overallTier} />
         </div>

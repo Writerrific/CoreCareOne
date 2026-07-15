@@ -23,9 +23,8 @@ function domainList(domains: Domain[]): string {
 
 function offlineAck(domains: Domain[]): string {
   return (
-    `Thanks for sharing that — and for putting it in your own words. Rather than a fixed form, I've picked out the areas ` +
-    `that actually seem to matter here: ${domainList(domains)}. I'll ask a few focused questions about each. ` +
-    `You can skip anything, and none of this is a diagnosis.`
+    `Thanks. From what you told me, the areas worth a look are ${domainList(domains)}. ` +
+    `I'll ask a few questions about each. Skip anything you'd rather not answer, and remember none of this is a diagnosis.`
   );
 }
 
@@ -75,7 +74,9 @@ export async function understandSituation(
     `Be adaptive: capture ALL the concerns that are genuinely present, including co-occurring ones the menu doesn't pair ` +
     `(e.g. an athlete who is ALSO drinking more and feeling low -> energy AND alcohol AND mood). Don't flatten a person to ` +
     `one category. Pick 2-5 domains. If mood or trauma is relevant, safety is added automatically downstream. ` +
-    `Reflect back what THEY said in your own warm words — don't recite a category name. ` +
+    `Reflect back what THEY said in your own words; don't recite a category name. ` +
+    `Voice: plain and human, like a good intake nurse. Short sentences. No em-dashes. No gushing reassurance ` +
+    `("that took courage", "I'm so glad you're here"). ` +
     `Respond ONLY as JSON: {"domains": string[], "templateId": string, "acknowledgement": string}.`;
 
   try {
@@ -117,9 +118,9 @@ export async function warmItemPhrasing(
 ): Promise<string> {
   if (!llmEnabled()) return canonicalPrompt;
   const system =
-    `You gently introduce a validated screening item without changing its meaning. ` +
-    `Return the SAME question, optionally preceded by one short, warm lead-in clause. ` +
-    `Do not add advice, do not add options, keep it under 40 words. Return plain text only.`;
+    `You introduce a validated screening item without changing its meaning. ` +
+    `Return the SAME question, optionally preceded by one short, plain lead-in clause. ` +
+    `No advice, no extra options, no em-dashes, under 40 words. Return plain text only.`;
   try {
     const res = await getClient().messages.create({
       model: MODEL,
@@ -167,9 +168,11 @@ export async function writeBriefs(
       ? `A SAFETY item was endorsed: both narratives must foreground connecting to a person now and the 988 Lifeline; do not counsel.\n`
       : ``) +
     (input.trajectory
-      ? `This is a RETURNING patient. Cross-visit trends are provided — reference the direction of change (improving/worsening) ` +
-        `in both narratives; the trend is often more meaningful than any single score. Do not re-score.\n`
+      ? `This is a RETURNING patient. Cross-visit trends are provided; reference the direction of change (improving/worsening) ` +
+        `in both narratives, since the trend is often more meaningful than any single score. Do not re-score.\n`
       : ``) +
+    `Voice: plain and human. Short, direct sentences. No em-dashes. No gushing reassurance ("that took courage", ` +
+    `"a real step toward feeling better"). Warm but matter-of-fact, like a good nurse.\n` +
     `Respond ONLY as JSON: {"patientReflection": string, "clinicianNarrative": string, "headline": string}.`;
 
   const user =
@@ -208,9 +211,9 @@ function deterministicBriefs(input: NarrativeInput): {
     return {
       headline: "Safety item endorsed — connect to a person now",
       patientReflection:
-        "Thank you for being honest — that took courage. What you shared tells me the most important next step is talking " +
-        "with a real person right away. You don't have to sort this out alone. If you're in the U.S., you can call or text 988 " +
-        "any time to reach the Suicide & Crisis Lifeline. Core Care Clinic can also connect you with someone today.",
+        "Thanks for being honest with me. The most important next step is talking with a real person, soon. In the U.S. you can " +
+        "call or text 988 anytime for the Suicide & Crisis Lifeline. Core Care can also connect you with someone today. You don't " +
+        "have to handle this alone.",
       clinicianNarrative:
         `Patient completed a pre-visit companion session and endorsed a safety item. Overall tier: ${input.overallTierLabel}. ` +
         `Red flags: ${input.redFlags.join("; ") || "safety item endorsed"}. Crisis resources were surfaced in-session; ` +
@@ -218,22 +221,21 @@ function deterministicBriefs(input: NarrativeInput): {
     };
   }
   const trendClausePatient = input.trajectory
-    ? " Because you've checked in before, your care team can see how things are trending, not just today's snapshot — that context really helps."
+    ? " Since you've checked in before, your team can see the trend over time, not just today."
     : "";
   const trendClauseClinician = input.trajectory ? ` Cross-visit trend: ${input.trajectory}.` : "";
   return {
     headline: input.returning
-      ? `Follow-up check-in — overall ${input.overallTierLabel.toLowerCase()}`
-      : `Pre-visit summary — overall ${input.overallTierLabel.toLowerCase()}`,
+      ? `Follow-up check-in · overall ${input.overallTierLabel.toLowerCase()}`
+      : `Pre-visit summary · overall ${input.overallTierLabel.toLowerCase()}`,
     patientReflection:
-      "Thanks for taking the time — that's a real step toward feeling better. Based on what you shared, there are a few areas " +
-      "worth talking through with your clinician. None of this is a diagnosis; it's a starting point that means your visit can " +
-      "pick up where you left off instead of starting from scratch." +
+      "Thanks for working through that. A few areas came up that are worth talking over with your clinician. This isn't a " +
+      "diagnosis; it's a starting point, so your visit can pick up where you left off instead of starting cold." +
       trendClausePatient +
-      " Bringing this in will help your care team help you faster.",
+      " Bring it with you and your care team can move faster.",
     clinicianNarrative:
-      `Patient completed a situation-first pre-visit screen. Overall tier: ${input.overallTierLabel}. ` +
-      `${input.resultsSummary.replace(/\n/g, " ")}` +
+      `Situation-first pre-visit screen completed. Overall tier: ${input.overallTierLabel}. ` +
+      `Instrument scores and bands are listed below.` +
       trendClauseClinician +
       ` Suggested focus: ${input.suggestedFocus.join(", ") || "general check-in"}.`,
   };

@@ -12,6 +12,7 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
 export function BriefView({ briefs, safetyTriggered }: { briefs: Briefs; safetyTriggered: boolean }) {
   const [showClinician, setShowClinician] = useState(false);
   const [booked, setBooked] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
   const { patientReflection, clinicianBrief, scheduling, trajectories, visitNumber } = briefs;
   const hasTrajectory = trajectories.some((t) => t.points.length >= 2);
 
@@ -19,9 +20,9 @@ export function BriefView({ briefs, safetyTriggered }: { briefs: Briefs; safetyT
     <div className="mx-auto max-w-2xl space-y-5">
       {safetyTriggered && (
         <div className="rounded-2xl border border-red-300 bg-red-50 p-5">
-          <h2 className="text-sm font-bold text-red-800">You deserve support right now</h2>
+          <h2 className="text-sm font-bold text-red-800">Please talk to someone now</h2>
           <p className="mt-2 text-sm leading-relaxed text-red-800">
-            Please reach a real person. In the U.S., call or text{" "}
+            Reach a real person. In the U.S., call or text{" "}
             <a href="tel:988" className="font-bold underline">
               988
             </a>{" "}
@@ -70,22 +71,38 @@ export function BriefView({ briefs, safetyTriggered }: { briefs: Briefs; safetyT
           </span>
         </div>
         <p className="mt-3 text-sm leading-relaxed text-slate-600">{scheduling.rationale}</p>
-        <div className="mt-4 flex flex-wrap gap-3">
-          <button
-            onClick={() => setBooked(true)}
-            disabled={booked}
-            className="rounded-xl bg-core-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-core-700 disabled:opacity-60"
-          >
-            {booked ? "Request sent ✓" : scheduling.visitType === "crisis" ? "Connect me with someone now" : "Book this visit"}
-          </button>
-          <button className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50">
-            Not right now
-          </button>
-        </div>
-        {booked && (
-          <p className="mt-3 text-xs text-slate-500">
-            (Prototype) In production this hands off to the clinic&apos;s scheduling system with your brief attached.
-          </p>
+
+        {booked ? (
+          <div className="mt-4">
+            <p className="text-sm font-medium text-core-800">Request sent ✓</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Prototype: in production this would reach the clinic&apos;s scheduling system with your brief attached.
+            </p>
+          </div>
+        ) : dismissed ? (
+          <div className="mt-4">
+            <p className="text-sm text-slate-600">
+              No problem. Your summary is saved, and it&apos;ll be here whenever you&apos;re ready.{" "}
+              <button onClick={() => setDismissed(false)} className="font-medium text-core-700 hover:underline">
+                Actually, book it
+              </button>
+            </p>
+          </div>
+        ) : (
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              onClick={() => setBooked(true)}
+              className="rounded-xl bg-core-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-core-700"
+            >
+              {scheduling.visitType === "crisis" ? "Connect me with someone now" : "Book this visit"}
+            </button>
+            <button
+              onClick={() => setDismissed(true)}
+              className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+            >
+              Not right now
+            </button>
+          </div>
         )}
       </Card>
 
