@@ -23,10 +23,12 @@ function id(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
 }
 
-export function createSession(context: PatientContext): Session {
+export function createSession(context: PatientContext, patientId: string, visitNumber: number): Session {
   const now = Date.now();
   const session: Session = {
     id: id("ses"),
+    patientId,
+    visitNumber,
     createdAt: now,
     updatedAt: now,
     phase: "intake",

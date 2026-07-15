@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { Briefs } from "@/lib/types";
 import { tierColor, tierLabel, urgencyLabel, visitTypeLabel } from "@/lib/present";
+import { TrajectoryChart } from "./TrajectoryChart";
 
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <div className={`rounded-2xl border border-slate-200 bg-white p-5 ${className}`}>{children}</div>;
@@ -11,7 +12,8 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
 export function BriefView({ briefs, safetyTriggered }: { briefs: Briefs; safetyTriggered: boolean }) {
   const [showClinician, setShowClinician] = useState(false);
   const [booked, setBooked] = useState(false);
-  const { patientReflection, clinicianBrief, scheduling } = briefs;
+  const { patientReflection, clinicianBrief, scheduling, trajectories, visitNumber } = briefs;
+  const hasTrajectory = trajectories.some((t) => t.points.length >= 2);
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
@@ -34,9 +36,27 @@ export function BriefView({ briefs, safetyTriggered }: { briefs: Briefs; safetyT
 
       {/* Patient-facing reflection */}
       <Card>
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-core-700">Your reflection</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-core-700">Your reflection</h2>
+          {visitNumber > 1 && (
+            <span className="rounded-full bg-core-100 px-2.5 py-0.5 text-[11px] font-medium text-core-800">
+              Check-in #{visitNumber}
+            </span>
+          )}
+        </div>
         <p className="mt-3 whitespace-pre-line text-[15px] leading-relaxed text-slate-700">{patientReflection}</p>
       </Card>
+
+      {/* Longitudinal trajectory — the "companion remembers" payoff */}
+      {hasTrajectory && (
+        <Card>
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-core-700">Your journey across check-ins</h2>
+          <p className="mt-1 text-sm text-slate-500">How each area has moved since your earlier check-ins.</p>
+          <div className="mt-4">
+            <TrajectoryChart trajectories={trajectories} />
+          </div>
+        </Card>
+      )}
 
       {/* Scheduling recommendation */}
       <Card className="border-core-200 bg-core-50">
@@ -143,6 +163,19 @@ export function BriefView({ briefs, safetyTriggered }: { briefs: Briefs; safetyT
                     </span>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {clinicianBrief.trajectoryNotes.length > 0 && (
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Trend across visits</div>
+                <ul className="mt-1 space-y-0.5 text-sm text-slate-700">
+                  {clinicianBrief.trajectoryNotes.map((n, i) => (
+                    <li key={i} className="tabular-nums">
+                      {n}
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
 

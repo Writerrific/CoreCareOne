@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { startSession } from "@/lib/engine";
+import { patientIdFromName } from "@/lib/patients";
 import type { PatientContext } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -14,7 +15,10 @@ export async function POST(req: Request) {
       situationText: typeof body.situationText === "string" ? body.situationText.slice(0, 2000) : undefined,
       tags: Array.isArray(body.tags) ? body.tags.filter((t: unknown) => typeof t === "string").slice(0, 12) : [],
     };
-    const session = await startSession(context);
+    // Named patients get a stable id (continuity across check-ins); others stay anonymous.
+    const patientId =
+      patientIdFromName(context.displayName) ?? `anon_${Math.random().toString(36).slice(2, 10)}`;
+    const session = await startSession(context, patientId);
     return NextResponse.json({ session });
   } catch (err) {
     console.error("session start failed", err);

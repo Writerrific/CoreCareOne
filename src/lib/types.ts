@@ -129,6 +129,10 @@ export interface PatientContext {
 
 export interface Session {
   id: string;
+  /** Stable patient key so check-ins over time form a trajectory (prototype: derived from name). */
+  patientId: string;
+  /** 1 for a first check-in, 2+ for returning. */
+  visitNumber: number;
   createdAt: number;
   updatedAt: number;
   phase: SessionPhase;
@@ -151,6 +155,9 @@ export interface Briefs {
   patientReflection: string;
   clinicianBrief: ClinicianBrief;
   scheduling: SchedulingRecommendation;
+  /** Per-instrument score history across this patient's check-ins (this session included). */
+  trajectories: Trajectory[];
+  visitNumber: number;
 }
 
 export interface ClinicianBrief {
@@ -160,6 +167,60 @@ export interface ClinicianBrief {
   redFlags: string[];
   suggestedFocus: string[];
   overallTier: RiskTier;
+  /** Trajectory lines, e.g. "PHQ-9: 4 → 8 → 12 (worsening)". */
+  trajectoryNotes: string[];
+  visitNumber: number;
+  returning: boolean;
+}
+
+// ---- Longitudinal layer ----------------------------------------------------
+
+/** A compact, persisted record of one completed session — the trajectory unit. */
+export interface SessionSummary {
+  sessionId: string;
+  at: number;
+  situationText: string;
+  overallTier: RiskTier;
+  safetyTriggered: boolean;
+  results: {
+    instrumentId: string;
+    shortName: string;
+    domain: Domain;
+    score: number;
+    maxScore: number;
+    bandLabel: string;
+    tier: RiskTier;
+  }[];
+}
+
+/** Everything we retain about a returning patient (prototype: in-memory + JSON file). */
+export interface PatientRecord {
+  patientId: string;
+  displayName?: string;
+  createdAt: number;
+  updatedAt: number;
+  sessions: SessionSummary[];
+}
+
+export interface TrajectoryPoint {
+  at: number;
+  score: number;
+  maxScore: number;
+  tier: RiskTier;
+  bandLabel: string;
+}
+
+export type TrajectoryDirection = "improving" | "worsening" | "steady" | "single";
+
+/** One instrument's score history across a patient's check-ins. */
+export interface Trajectory {
+  instrumentId: string;
+  shortName: string;
+  domain: Domain;
+  points: TrajectoryPoint[];
+  direction: TrajectoryDirection;
+  /** Signed change from first to latest point (in raw score units). */
+  delta: number;
 }
 
 export type VisitType = "primary_care" | "behavioral_health" | "integrated" | "crisis";

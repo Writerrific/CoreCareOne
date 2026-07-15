@@ -39,6 +39,9 @@ export function IntakeForm({ onStart, busy }: { onStart: (p: IntakePayload) => v
           placeholder="What should I call you?"
           className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm outline-none focus:border-core-500 focus:ring-2 focus:ring-core-100"
         />
+        <p className="mt-1 text-xs text-slate-400">
+          Use the same first name each time — I&apos;ll remember your progress and chart how things change across check-ins.
+        </p>
       </div>
 
       <div className="mt-5">

@@ -11,7 +11,23 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import type { Domain } from "./types";
-import { SITUATIONS, matchSituation } from "./situations";
+import { SITUATIONS, inferDomains } from "./situations";
+import { domainLabel } from "./present";
+
+/** Human list of composed domains, e.g. "sleep, stress, and mood". */
+function domainList(domains: Domain[]): string {
+  const labels = domains.filter((d) => d !== "safety").map((d) => domainLabel(d).toLowerCase());
+  if (labels.length <= 1) return labels[0] ?? "your wellbeing";
+  return `${labels.slice(0, -1).join(", ")}, and ${labels[labels.length - 1]}`;
+}
+
+function offlineAck(domains: Domain[]): string {
+  return (
+    `Thanks for sharing that — and for putting it in your own words. Rather than a fixed form, I've picked out the areas ` +
+    `that actually seem to matter here: ${domainList(domains)}. I'll ask a few focused questions about each. ` +
+    `You can skip anything, and none of this is a diagnosis.`
+  );
+}
 
 const MODEL = process.env.CORECARE_MODEL || "claude-opus-4-8";
 
@@ -45,14 +61,8 @@ export async function understandSituation(
   situationText: string,
 ): Promise<{ domains: Domain[]; acknowledgement: string; templateId: string }> {
   if (!llmEnabled()) {
-    const { template } = matchSituation(situationText);
-    return {
-      domains: template.domains,
-      templateId: template.id,
-      acknowledgement:
-        `Thanks for sharing that. It sounds like a "${template.label.toLowerCase()}" kind of moment — ` +
-        `I'll ask a few focused questions about ${template.domains.join(", ")}. You can skip anything, and this isn't a diagnosis.`,
-    };
+    const { domains, templateId } = inferDomains(situationText);
+    return { domains, templateId, acknowledgement: offlineAck(domains) };
   }
 
   const menu = SITUATIONS.map((s) => `- ${s.id}: ${s.label} -> domains: ${s.domains.join(", ")}`).join("\n");
@@ -61,8 +71,11 @@ export async function understandSituation(
     `A patient described their situation in their own words. Your ONLY job is to (a) pick the relevant screening DOMAINS ` +
     `and (b) write one warm, brief, non-diagnostic acknowledgement. You are NOT a therapist and must not give clinical advice.\n\n` +
     `Valid domains: ${VALID_DOMAINS.join(", ")}.\n` +
-    `Reference situation menu:\n${menu}\n\n` +
-    `Rules: pick 2-5 domains. If mood or trauma is relevant, that's fine — safety is added automatically downstream. ` +
+    `Reference situation menu (a STARTING point, not a set of boxes to force people into):\n${menu}\n\n` +
+    `Be adaptive: capture ALL the concerns that are genuinely present, including co-occurring ones the menu doesn't pair ` +
+    `(e.g. an athlete who is ALSO drinking more and feeling low -> energy AND alcohol AND mood). Don't flatten a person to ` +
+    `one category. Pick 2-5 domains. If mood or trauma is relevant, safety is added automatically downstream. ` +
+    `Reflect back what THEY said in your own warm words — don't recite a category name. ` +
     `Respond ONLY as JSON: {"domains": string[], "templateId": string, "acknowledgement": string}.`;
 
   try {
@@ -77,23 +90,19 @@ export async function understandSituation(
     const domains = (parsed.domains as string[]).filter((d): d is Domain =>
       VALID_DOMAINS.includes(d as Domain),
     );
-    const { template } = matchSituation(situationText);
+    const fallback = inferDomains(situationText);
+    const finalDomains = domains.length ? domains : fallback.domains;
     return {
-      domains: domains.length ? domains : template.domains,
-      templateId: typeof parsed.templateId === "string" ? parsed.templateId : template.id,
+      domains: finalDomains,
+      templateId: typeof parsed.templateId === "string" ? parsed.templateId : fallback.templateId,
       acknowledgement:
         typeof parsed.acknowledgement === "string" && parsed.acknowledgement.trim()
           ? parsed.acknowledgement.trim()
-          : "Thanks for sharing that — I'll ask a few focused questions. This isn't a diagnosis, and you can skip anything.",
+          : offlineAck(finalDomains),
     };
   } catch {
-    const { template } = matchSituation(situationText);
-    return {
-      domains: template.domains,
-      templateId: template.id,
-      acknowledgement:
-        "Thanks for sharing that — I'll ask a few focused questions. This isn't a diagnosis, and you can skip anything.",
-    };
+    const { domains, templateId } = inferDomains(situationText);
+    return { domains, templateId, acknowledgement: offlineAck(domains) };
   }
 }
 
@@ -134,6 +143,10 @@ export interface NarrativeInput {
   redFlags: string[];
   suggestedFocus: string[];
   safetyTriggered: boolean;
+  /** True for a returning patient (2nd+ check-in). */
+  returning?: boolean;
+  /** Cross-visit trends, e.g. "PHQ-9: 8 → 12 (worsening); GAD-7: 10 → 6 (improving)". */
+  trajectory?: string;
 }
 
 /** Write the two brief narratives. Deterministic fallback when offline. */
@@ -153,6 +166,10 @@ export async function writeBriefs(
     (input.safetyTriggered
       ? `A SAFETY item was endorsed: both narratives must foreground connecting to a person now and the 988 Lifeline; do not counsel.\n`
       : ``) +
+    (input.trajectory
+      ? `This is a RETURNING patient. Cross-visit trends are provided — reference the direction of change (improving/worsening) ` +
+        `in both narratives; the trend is often more meaningful than any single score. Do not re-score.\n`
+      : ``) +
     `Respond ONLY as JSON: {"patientReflection": string, "clinicianNarrative": string, "headline": string}.`;
 
   const user =
@@ -160,7 +177,8 @@ export async function writeBriefs(
     `Overall tier: ${input.overallTierLabel}\n` +
     `Results:\n${input.resultsSummary}\n` +
     `Red flags: ${input.redFlags.join("; ") || "none"}\n` +
-    `Suggested focus: ${input.suggestedFocus.join("; ") || "general check-in"}`;
+    `Suggested focus: ${input.suggestedFocus.join("; ") || "general check-in"}\n` +
+    `Cross-visit trend: ${input.trajectory || "first check-in"}`;
 
   try {
     const res = await getClient().messages.create({
@@ -199,16 +217,25 @@ function deterministicBriefs(input: NarrativeInput): {
         `recommend immediate clinician contact and safety assessment. Suggested focus: ${input.suggestedFocus.join(", ") || "safety"}.`,
     };
   }
+  const trendClausePatient = input.trajectory
+    ? " Because you've checked in before, your care team can see how things are trending, not just today's snapshot — that context really helps."
+    : "";
+  const trendClauseClinician = input.trajectory ? ` Cross-visit trend: ${input.trajectory}.` : "";
   return {
-    headline: `Pre-visit summary — overall ${input.overallTierLabel.toLowerCase()}`,
+    headline: input.returning
+      ? `Follow-up check-in — overall ${input.overallTierLabel.toLowerCase()}`
+      : `Pre-visit summary — overall ${input.overallTierLabel.toLowerCase()}`,
     patientReflection:
       "Thanks for taking the time — that's a real step toward feeling better. Based on what you shared, there are a few areas " +
       "worth talking through with your clinician. None of this is a diagnosis; it's a starting point that means your visit can " +
-      "pick up where you left off instead of starting from scratch. Bringing this in will help your care team help you faster.",
+      "pick up where you left off instead of starting from scratch." +
+      trendClausePatient +
+      " Bringing this in will help your care team help you faster.",
     clinicianNarrative:
       `Patient completed a situation-first pre-visit screen. Overall tier: ${input.overallTierLabel}. ` +
-      `${input.resultsSummary.replace(/\n/g, " ")} ` +
-      `Suggested focus: ${input.suggestedFocus.join(", ") || "general check-in"}.`,
+      `${input.resultsSummary.replace(/\n/g, " ")}` +
+      trendClauseClinician +
+      ` Suggested focus: ${input.suggestedFocus.join(", ") || "general check-in"}.`,
   };
 }
 

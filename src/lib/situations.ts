@@ -81,8 +81,25 @@ export function getSituation(id: string): SituationTemplate | undefined {
 }
 
 /**
- * Deterministic offline matcher: score each template by alias hits in the text,
- * return the best-matching template's domains. Used when no LLM key is present.
+ * Direct domain keywords. These let us pick up a concern EVEN WHEN no single
+ * template owns it — so a message like "I'm an athlete but I've also been
+ * drinking more and feeling down" surfaces energy + alcohol + mood together,
+ * rather than being forced into just the "athlete" bucket.
+ */
+const DOMAIN_KEYWORDS: Record<Domain, string[]> = {
+  mood: ["depress", "down", "hopeless", "sad", "empty", "numb", "no interest", "unmotivated", "worthless", "cry", "flat", "low"],
+  anxiety: ["anxious", "anxiety", "panic", "worry", "worried", "on edge", "nervous", "dread", "racing thought", "restless"],
+  stress: ["stress", "overwhelm", "pressure", "burnout", "burnt out", "too much", "piling up", "can't cope", "cant cope"],
+  sleep: ["sleep", "insomnia", "awake", "tired", "exhausted", "restless", "wired", "can't sleep", "cant sleep", "waking"],
+  alcohol: ["drink", "drinking", "alcohol", "hungover", "hangover", "wine", "beer", "booze", "substance", "weed", "using"],
+  trauma: ["trauma", "ptsd", "flashback", "nightmare", "assault", "abuse", "accident", "attack", "violence", "grief", "loss"],
+  energy: ["energy", "fatigue", "performance", "recovery", "training", "workout", "athlete", "run", "gym", "run-down", "appetite", "weight"],
+  safety: ["suicid", "self-harm", "self harm", "hurt myself", "end it", "better off dead", "kill myself", "no reason to live"],
+};
+
+/**
+ * Deterministic offline matcher: single best-matching template (kept for the
+ * intake blurb / label). Prefer `inferDomains` for actual pathway composition.
  */
 export function matchSituation(text: string): { template: SituationTemplate; matched: string[] } {
   const lower = ` ${text.toLowerCase()} `;
@@ -96,6 +113,53 @@ export function matchSituation(text: string): { template: SituationTemplate; mat
     }
   }
   return { template: best, matched: bestHits };
+}
+
+/**
+ * Adaptive, multi-signal domain inference — the offline counterpart to the LLM
+ * intake. Rather than picking ONE category, it scores every domain from two
+ * independent sources and unions everything that clears a threshold:
+ *   1. how many templates' aliases the text hits (each contributes its domains)
+ *   2. direct domain keywords (a stronger, category-independent signal)
+ * The result adapts to the individual instead of flattening them to a bucket.
+ */
+export function inferDomains(text: string): {
+  domains: Domain[];
+  templateId: string;
+  matched: string[];
+  scores: Partial<Record<Domain, number>>;
+} {
+  const lower = ` ${text.toLowerCase()} `;
+  const scores: Partial<Record<Domain, number>> = {};
+  const matched = new Set<string>();
+  const bump = (d: Domain, n: number) => (scores[d] = (scores[d] ?? 0) + n);
+
+  let bestTemplate: SituationTemplate = getSituation("general_checkin")!;
+  let bestHits = 0;
+  for (const t of SITUATIONS) {
+    const hits = t.aliases.filter((a) => lower.includes(a.toLowerCase()));
+    if (hits.length) {
+      for (const d of t.domains) bump(d, hits.length);
+      hits.forEach((h) => matched.add(h));
+    }
+    if (hits.length > bestHits) {
+      bestHits = hits.length;
+      bestTemplate = t;
+    }
+  }
+
+  for (const [domain, kws] of Object.entries(DOMAIN_KEYWORDS) as [Domain, string[]][]) {
+    for (const kw of kws) {
+      if (lower.includes(kw)) {
+        bump(domain, 2);
+        matched.add(kw);
+      }
+    }
+  }
+
+  let domains = (Object.keys(scores) as Domain[]).filter((d) => (scores[d] ?? 0) >= 2);
+  if (!domains.length) domains = bestTemplate.domains.slice();
+  return { domains, templateId: bestTemplate.id, matched: Array.from(matched), scores };
 }
 
 /**

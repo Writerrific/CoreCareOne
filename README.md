@@ -47,10 +47,16 @@ That separation is what makes it defensible enough to sit in a real clinic's wor
 
 ## Novel mechanics
 
-- **Situation-first intake.** "I'm a college runner and my times are slipping and I feel flat" →
-  the companion screens energy/recovery, sleep, stress, and mood — not a generic form.
+- **Situation-first, multi-signal intake.** "I'm a college runner, my times are slipping, I feel
+  flat, and I've been drinking more" → the companion scores *every* domain from templates **and**
+  direct symptom keywords and unions what's relevant (energy + mood + alcohol) — it doesn't flatten
+  a person into one category.
 - **Adaptive pathway composition** with **pre-screen skips** (PHQ-2 gates PHQ-9; GAD-2 gates GAD-7)
-  so nobody answers questions that don't apply.
+  so nobody answers questions that don't apply — **plus in-conversation expansion**: a completed
+  screener that signals a related concern weaves in the right follow-up mid-session.
+- **Longitudinal memory.** Use the same name across visits and the companion greets you back, carries
+  forward areas that were elevated last time, and charts each instrument's **trajectory** across
+  check-ins (PHQ-9 24 → 8 → …). The trend — not any single score — is the clinical payoff.
 - **Care-Signal Ledger** — a transparent, real-time panel where every signal cites its source
   (`GAD-7 · item 3`). Trust for the patient, an audit trail for the clinician.
 - **Stratified risk** across five tiers (`minimal → low → moderate → high → urgent`), never a
@@ -129,8 +135,10 @@ npm run build
 
 ## Roadmap
 
-- **Longitudinal continuity** — persist sessions per patient and chart instrument trajectories
-  (is the PHQ-9 trending up or down between visits?). This is the "companion," not "form," payoff.
+- ✅ **Longitudinal continuity** — sessions persist per patient (in-memory + JSON file), the pathway
+  carries forward prior concerns, and each instrument's trajectory is charted across check-ins.
+  *(Prototype identity = the name entered; production needs real patient auth + a HIPAA datastore.)*
+- ✅ **Adaptive composition** — multi-signal intake + mid-session pathway expansion (above).
 - **EHR / scheduling handoff** — push the clinician brief + booking into the clinic's system.
 - **Multi-tenant config** — instrument library + situation templates as per-clinic configuration.
 - **Clinician review console** — a queue of incoming briefs, triaged by tier.

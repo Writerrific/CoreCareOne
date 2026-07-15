@@ -31,7 +31,13 @@ import {
 } from "./risk";
 import { createSession, newMessageId, saveSession } from "./session";
 import { understandSituation, warmItemPhrasing, writeBriefs } from "./anthropic";
-import type { Briefs, ClinicianBrief } from "./types";
+import {
+  computeTrajectories,
+  getPatient,
+  recordSession,
+  summarize,
+} from "./patients";
+import type { Briefs, ClinicianBrief, SessionSummary } from "./types";
 
 const DOMAIN_LABEL: Record<Domain, string> = {
   mood: "mood",
@@ -124,8 +130,11 @@ function advanceCursor(session: Session): boolean {
 }
 
 /** Start a new session from the patient's shared context + situation text. */
-export async function startSession(context: PatientContext): Promise<Session> {
-  const session = createSession(context);
+export async function startSession(context: PatientContext, patientId: string): Promise<Session> {
+  const prior = getPatient(patientId);
+  const priorCount = prior?.sessions.length ?? 0;
+  const returning = priorCount > 0;
+  const session = createSession(context, patientId, priorCount + 1);
 
   session.messages.push(
     msg({ speaker: "companion", text: `Hi${context.displayName ? ` ${context.displayName}` : ""} — I'm glad you're here. ${DISCLAIMER}` }),
@@ -133,8 +142,33 @@ export async function startSession(context: PatientContext): Promise<Session> {
 
   const situationText = context.situationText?.trim() || "general check-in";
   const understanding = await understandSituation(situationText);
+  let domains = understanding.domains;
 
-  session.pathway = composePathway(understanding.domains);
+  // Longitudinal carry-forward: re-check areas that were elevated last time,
+  // even if the person didn't bring them up today. This is the "companion
+  // remembers" behavior — the pathway adapts to their history, not just today's words.
+  let carried: Domain[] = [];
+  if (returning) {
+    const last = prior!.sessions[prior!.sessions.length - 1];
+    carried = last.results
+      .filter((r) => r.domain !== "safety" && tierRank(r.tier) >= 2 && !domains.includes(r.domain as Domain))
+      .map((r) => r.domain as Domain);
+    domains = Array.from(new Set([...domains, ...carried]));
+
+    const lastTop = [...last.results].sort((a, b) => tierRank(b.tier) - tierRank(a.tier))[0];
+    const whenAgo = daysAgo(last.at);
+    session.messages.push(
+      msg({
+        speaker: "companion",
+        text:
+          `Welcome back — this is check-in #${session.visitNumber}. ${whenAgo ? `Last time (${whenAgo}), ` : "Last time, "}` +
+          `${lastTop ? `${DOMAIN_LABEL[lastTop.domain as Domain]} stood out most. ` : ""}` +
+          `Let's see how things have shifted since then.`,
+      }),
+    );
+  }
+
+  session.pathway = composePathway(domains);
   session.plannedInstrumentIds = session.pathway
     .map((d) => instrumentForDomain(d)?.id)
     .filter((id): id is string => Boolean(id));
@@ -142,11 +176,11 @@ export async function startSession(context: PatientContext): Promise<Session> {
   session.signals.push({
     id: `sig_pathway_${session.createdAt}`,
     domain: session.pathway[0] ?? "mood",
-    text: `Composed a ${session.pathway.length}-area pathway from what you shared: ${session.pathway
-      .map((d) => DOMAIN_LABEL[d])
-      .join(", ")}.`,
+    text:
+      `Composed a ${session.pathway.length}-area pathway from what you shared: ${session.pathway.map((d) => DOMAIN_LABEL[d]).join(", ")}.` +
+      (carried.length ? ` (Re-checking ${carried.map((d) => DOMAIN_LABEL[d]).join(" & ")} from your last visit.)` : ""),
     tier: "minimal",
-    source: `situation → pathway`,
+    source: `situation${carried.length ? " + history" : ""} → pathway`,
     at: Date.now(),
   });
 
@@ -159,6 +193,57 @@ export async function startSession(context: PatientContext): Promise<Session> {
   else session.phase = "summary";
 
   return saveSession(session);
+}
+
+/** Human "3 days ago" / "2 weeks ago" for the welcome-back line. */
+function daysAgo(then: number): string {
+  const d = Math.round((Date.now() - then) / 86_400_000);
+  if (d <= 0) return "earlier today";
+  if (d === 1) return "yesterday";
+  if (d < 14) return `${d} days ago`;
+  if (d < 60) return `${Math.round(d / 7)} weeks ago`;
+  return `${Math.round(d / 30)} months ago`;
+}
+
+/**
+ * Adaptive in-conversation pathway expansion. When a completed instrument
+ * signals a related concern, weave in the relevant screener mid-session — the
+ * companion follows the person's answers instead of a fixed script. Returns the
+ * domains newly added (for transparency).
+ */
+function expandPathway(session: Session): Domain[] {
+  const results = computeResults(session.answers);
+  const added: Domain[] = [];
+
+  const addDomain = (d: Domain) => {
+    const inst = instrumentForDomain(d);
+    if (!inst || session.plannedInstrumentIds.includes(inst.id)) return;
+    // Keep a not-yet-reached safety check last by inserting ahead of it.
+    const safetyIdx = session.plannedInstrumentIds.indexOf("safety");
+    if (d !== "safety" && safetyIdx > session.cursor.instrumentIndex) {
+      session.plannedInstrumentIds.splice(safetyIdx, 0, inst.id);
+      const sPath = session.pathway.indexOf("safety");
+      if (sPath !== -1) session.pathway.splice(sPath, 0, d);
+      else session.pathway.push(d);
+    } else {
+      session.plannedInstrumentIds.push(inst.id);
+      session.pathway.push(d);
+    }
+    added.push(d);
+  };
+
+  for (const r of results) {
+    const t = tierRank(r.band.tier);
+    if (r.domain === "energy" && t >= 2) {
+      addDomain("sleep");
+      addDomain("mood");
+    }
+    if (r.domain === "alcohol" && t >= 2) addDomain("mood");
+    if (r.domain === "sleep" && t >= 3) addDomain("stress");
+    if (r.domain === "anxiety" && t >= 3) addDomain("mood");
+    if ((r.domain === "mood" || r.domain === "trauma") && t >= 1) addDomain("safety");
+  }
+  return added;
 }
 
 /** Record an answer to the current item and produce the next companion turn. */
@@ -208,26 +293,48 @@ export async function submitAnswer(
     );
     session.results = computeResults(session.answers);
     session.overallTier = "urgent";
+    persistSummary(session);
     return saveSession(session);
   }
 
   const prevInstrumentId = instrument.id;
-  const more = advanceCursor(session);
-  const nextInstrument = currentInstrument(session);
-  const crossedInstrument = !more || nextInstrument?.id !== prevInstrumentId;
+  const advanced = advanceCursor(session);
+  const crossedInstrument = !advanced || currentInstrument(session)?.id !== prevInstrumentId;
 
-  // When we leave an instrument, drop a completed-band signal into the ledger.
+  // When we leave an instrument: record its band, then adaptively decide whether
+  // its result warrants weaving in a related screener.
   if (crossedInstrument) {
     const finished = getInstrument(prevInstrumentId);
     if (finished && session.answers.some((a) => a.instrumentId === finished.id)) {
       session.signals.push(signalForResult(scoreInstrument(finished, session.answers)));
+    }
+    const added = expandPathway(session);
+    if (added.length) {
+      const labels = added.map((d) => DOMAIN_LABEL[d]).join(" and ");
+      session.signals.push({
+        id: `sig_expand_${Date.now()}`,
+        domain: added[0],
+        text: `Your answers opened up ${labels} — I wove in a few more questions.`,
+        tier: "low",
+        source: "adaptive follow-up",
+        at: Date.now(),
+      });
+      session.messages.push(
+        msg({
+          speaker: "companion",
+          text: `A couple of your answers made me want to check one more thing — I'll add a few quick questions about ${labels}. Still optional.`,
+        }),
+      );
     }
   }
 
   // Keep the overall meter honest and live as instruments accumulate.
   session.overallTier = overallTier(computeResults(session.answers));
 
-  if (more) {
+  // After any expansion, is there still an item to ask?
+  const nextInstrument = currentInstrument(session);
+  const nextItem = nextInstrument?.items[session.cursor.itemIndex];
+  if (nextInstrument && nextItem) {
     const next = await emitCurrentItem(session, crossedInstrument);
     if (next) session.messages.push(next);
   } else {
@@ -243,9 +350,25 @@ export async function submitAnswer(
           "whether booking a visit makes sense.",
       }),
     );
+    persistSummary(session);
   }
 
   return saveSession(session);
+}
+
+/** Persist a completed session to the patient's longitudinal record (named patients only). */
+function persistSummary(session: Session): void {
+  if (!session.patientId || session.patientId.startsWith("anon_")) return;
+  const results = session.results.length ? session.results : computeResults(session.answers);
+  const tier = session.safetyTriggered ? "urgent" : overallTier(results);
+  const summary = summarize(
+    session.id,
+    session.context.situationText || "general check-in",
+    tier,
+    session.safetyTriggered,
+    results,
+  );
+  recordSession(session.patientId, session.context.displayName, summary);
 }
 
 /** Deterministic scheduling recommendation from computed results. */
@@ -335,6 +458,19 @@ export async function generateBriefs(session: Session): Promise<Briefs> {
     .map((r) => `${r.shortName} ${r.score}/${r.maxScore} — ${r.band.label}${r.safetyFlags.length ? " [SAFETY FLAG]" : ""}`)
     .join("\n");
 
+  // Longitudinal: fold this session in (dedup-safe) and chart each instrument.
+  const currentSummary: SessionSummary = summarize(
+    session.id,
+    session.context.situationText || "general check-in",
+    tier,
+    session.safetyTriggered,
+    results,
+  );
+  const trajectories = computeTrajectories(session.patientId, currentSummary);
+  const trajectoryNotes = trajectories
+    .filter((t) => t.points.length >= 2)
+    .map((t) => `${t.shortName}: ${t.points.map((p) => p.score).join(" → ")} (${t.direction})`);
+
   const narratives = await writeBriefs({
     situationText: session.context.situationText || "general check-in",
     resultsSummary,
@@ -342,6 +478,8 @@ export async function generateBriefs(session: Session): Promise<Briefs> {
     redFlags,
     suggestedFocus,
     safetyTriggered: session.safetyTriggered,
+    returning: session.visitNumber > 1,
+    trajectory: trajectoryNotes.join("; "),
   });
 
   const clinicianBrief: ClinicianBrief = {
@@ -351,11 +489,16 @@ export async function generateBriefs(session: Session): Promise<Briefs> {
     redFlags,
     suggestedFocus,
     overallTier: tier,
+    trajectoryNotes,
+    visitNumber: session.visitNumber,
+    returning: session.visitNumber > 1,
   };
 
   return {
     patientReflection: narratives.patientReflection,
     clinicianBrief,
     scheduling: recommendScheduling(session),
+    trajectories,
+    visitNumber: session.visitNumber,
   };
 }
