@@ -411,17 +411,26 @@ export async function skipItem(session: Session): Promise<Session> {
 }
 
 /**
- * Open-ended free text. The companion interprets what the person wrote, updates
- * the ledger, and adapts the pathway — without losing their place. The current
- * question stays pending (it is restated) so they can still answer it.
+ * Open-ended free text. The companion interprets what the person wrote. If the
+ * note plausibly answers the pending question, it records that answer and moves
+ * on. Otherwise it logs traceable signals, adapts the pathway, and leaves the
+ * question open — WITHOUT re-asking it (the answer buttons stay pinned below,
+ * so restating just made the conversation loop).
  */
 export async function submitFreeText(session: Session, text: string): Promise<Session> {
   if (session.phase !== "screening") return session;
   const trimmed = text.trim().slice(0, 1000);
   if (trimmed.length < 2) return session;
 
+  const instrument = currentInstrument(session);
+  const item = instrument?.items[session.cursor.itemIndex];
+
   session.messages.push(msg({ speaker: "patient", text: trimmed }));
-  const interpreted = await interpretFreeText(trimmed, contextString(session));
+  const interpreted = await interpretFreeText(
+    trimmed,
+    contextString(session),
+    item ? { prompt: item.prompt, choices: item.choices } : undefined,
+  );
 
   // Safety takes precedence over everything.
   if (interpreted.safety) {
@@ -437,8 +446,13 @@ export async function submitFreeText(session: Session, text: string): Promise<Se
     return saveSession(session);
   }
 
-  // Surface whatever the interpretation picked up, traceable to "free text".
+  // Surface only NEW observations — repeating identical free-text signals is noise.
+  const seen = new Set(session.signals.filter((s) => s.source === "free text").map((s) => s.text));
+  let newSignals = 0;
   for (const s of interpreted.signals) {
+    if (seen.has(s.text)) continue;
+    seen.add(s.text);
+    newSignals++;
     session.signals.push({
       id: `sig_ft_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       domain: s.domain,
@@ -453,13 +467,39 @@ export async function submitFreeText(session: Session, text: string): Promise<Se
   const added: Domain[] = [];
   for (const d of interpreted.domains) if (addDomainToPathway(session, d)) added.push(d);
 
-  let ack = interpreted.acknowledgement || "Thanks, I've noted that.";
-  if (added.length) ack += ` I'll add a few questions about ${joinList(added.map((d) => DOMAIN_LABEL[d]))}.`;
-  session.messages.push(msg({ speaker: "companion", text: ack }));
+  // If the note answers the pending question, record it like a button press and move on.
+  if (interpreted.answer && instrument && item) {
+    const choice = item.choices.find((c) => c.value === interpreted.answer!.value);
+    if (choice) {
+      session.messages.push(
+        msg({ speaker: "companion", text: `Sounds like "${choice.label}" for that one. I've marked it.` }),
+      );
+      const answer: Answer = {
+        instrumentId: instrument.id,
+        itemId: item.id,
+        value: choice.value,
+        label: choice.label,
+        at: Date.now(),
+      };
+      session.answers.push(answer);
+      const sig = signalForAnswer(answer);
+      if (sig) session.signals.push(sig);
+      if (item.safetyCritical && choice.value > 0) {
+        enterSafety(session);
+        return saveSession(session);
+      }
+      await continueAfterCurrent(session, instrument.id);
+      return saveSession(session);
+    }
+  }
 
-  // Restate the current question so the answer buttons have clear context again.
-  const restated = await emitCurrentItem(session, false);
-  if (restated) session.messages.push(restated);
+  // Side note: acknowledge without re-asking. Vary the ack when nothing new
+  // came out of it, so repeated notes don't get identical robotic replies.
+  let ack = interpreted.acknowledgement || "Thanks, I've noted that.";
+  if (!added.length && newSignals === 0) ack = "Got it, that's in your notes for the care team.";
+  if (added.length) ack += ` I'll add a few questions about ${joinList(added.map((d) => DOMAIN_LABEL[d]))}.`;
+  if (item) ack += " For my last question, you can still pick an option below, or skip it.";
+  session.messages.push(msg({ speaker: "companion", text: ack }));
 
   session.overallTier = overallTier(computeResults(session.answers, session.skipped));
   return saveSession(session);

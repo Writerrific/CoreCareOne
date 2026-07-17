@@ -109,15 +109,39 @@ export async function understandSituation(
   }
 }
 
+export interface PendingItemInfo {
+  prompt: string;
+  choices: { label: string; value: number }[];
+}
+
 export interface FreeTextInterpretation {
   domains: Domain[];
   signals: { domain: Domain; text: string; tier: RiskTier }[];
   safety: boolean;
   acknowledgement: string;
+  /** If the note plausibly answers the pending question, the matched choice. */
+  answer: { value: number; label: string } | null;
+}
+
+/**
+ * Conservative offline mapping of a note onto the pending item's choices.
+ * Matches only when a choice label appears in the text (longest label first,
+ * word-boundary for short labels like "Yes"/"No"). Anything ambiguous -> null.
+ */
+function mapToChoice(text: string, choices: { label: string; value: number }[]): { value: number; label: string } | null {
+  const t = ` ${text.toLowerCase()} `;
+  const sorted = [...choices].sort((a, b) => b.label.length - a.label.length);
+  for (const c of sorted) {
+    const l = c.label.toLowerCase();
+    if (l.length >= 4 ? t.includes(l) : new RegExp(`\\b${l}\\b`).test(t)) {
+      return { value: c.value, label: c.label };
+    }
+  }
+  return null;
 }
 
 /** Deterministic keyword interpretation of a free-text note (offline path). */
-function offlineInterpret(text: string): FreeTextInterpretation {
+function offlineInterpret(text: string, pending?: PendingItemInfo): FreeTextInterpretation {
   const { domains } = inferDomains(text);
   const safety = mentionsSafetyConcern(text);
   const nonSafety = domains.filter((d) => d !== "safety");
@@ -130,24 +154,38 @@ function offlineInterpret(text: string): FreeTextInterpretation {
     })),
     safety,
     acknowledgement: nonSafety.length ? "Thanks, that's useful to know." : "Thanks, I've noted that.",
+    answer: pending && !safety ? mapToChoice(text, pending.choices) : null,
   };
 }
 
 /**
- * Interpret a patient's open-ended note: detect safety concerns, pick relevant
- * screening domains, and surface short observations. Never diagnoses or scores.
- * Falls back to deterministic keyword interpretation when offline.
+ * Interpret a patient's open-ended note: detect safety concerns, map the note
+ * onto the pending question's choices when it plausibly answers it, pick
+ * relevant screening domains, and surface short observations. Never diagnoses
+ * or scores. Falls back to deterministic keyword interpretation when offline.
  */
-export async function interpretFreeText(text: string, context: string): Promise<FreeTextInterpretation> {
-  if (!llmEnabled()) return offlineInterpret(text);
+export async function interpretFreeText(
+  text: string,
+  context: string,
+  pending?: PendingItemInfo,
+): Promise<FreeTextInterpretation> {
+  if (!llmEnabled()) return offlineInterpret(text, pending);
+
+  const pendingBlock = pending
+    ? `\nThe patient currently has this screening question pending: "${pending.prompt}" with choices: ` +
+      pending.choices.map((c) => `"${c.label}" (value ${c.value})`).join(", ") +
+      `. If the note clearly answers that question, set "answer" to the best-matching choice ` +
+      `{"label": string, "value": number}. If it is a side comment or ambiguous, set "answer": null. Never guess.`
+    : `\nSet "answer": null.`;
 
   const system =
     `You read a patient's free-text note during pre-visit screening and extract structured info. ` +
     `You do NOT diagnose, score, or give advice. Set safety=true if the note suggests suicidal ideation, self-harm, ` +
     `or intent to harm. Otherwise pick the relevant screening domains and 1-3 short, plain observations.\n` +
-    `Valid domains: ${VALID_DOMAINS.join(", ")}. Valid tiers: minimal, low, moderate, high.\n` +
-    `Voice: plain and human, no em-dashes, no gushing. Keep the acknowledgement to one short sentence.\n` +
-    `Respond ONLY as JSON: {"safety": boolean, "domains": string[], "signals": [{"domain": string, "text": string, "tier": string}], "acknowledgement": string}.`;
+    `Valid domains: ${VALID_DOMAINS.join(", ")}. Valid tiers: minimal, low, moderate, high.` +
+    pendingBlock +
+    `\nVoice: plain and human, no em-dashes, no gushing. Keep the acknowledgement to one short sentence.\n` +
+    `Respond ONLY as JSON: {"safety": boolean, "domains": string[], "signals": [{"domain": string, "text": string, "tier": string}], "acknowledgement": string, "answer": {"label": string, "value": number} | null}.`;
 
   try {
     const res = await getClient().messages.create({
@@ -177,6 +215,18 @@ export async function interpretFreeText(text: string, context: string): Promise<
           .slice(0, 4)
       : [];
 
+    // Validate any proposed answer against the REAL pending choices — the model
+    // never gets to invent a value that isn't on the instrument.
+    let answer: { value: number; label: string } | null = null;
+    const rawAnswer = parsed.answer;
+    if (pending && rawAnswer && typeof rawAnswer === "object") {
+      const a = rawAnswer as Record<string, unknown>;
+      const match = pending.choices.find(
+        (c) => c.value === a.value && c.label.toLowerCase() === String(a.label ?? "").toLowerCase(),
+      ) ?? pending.choices.find((c) => c.label.toLowerCase() === String(a.label ?? "").toLowerCase());
+      if (match) answer = { value: match.value, label: match.label };
+    }
+
     return {
       safety: Boolean(parsed.safety),
       domains: domains.filter((d) => d !== "safety"),
@@ -185,9 +235,10 @@ export async function interpretFreeText(text: string, context: string): Promise<
         typeof parsed.acknowledgement === "string" && parsed.acknowledgement.trim()
           ? parsed.acknowledgement.trim()
           : "Thanks, I've noted that.",
+      answer: Boolean(parsed.safety) ? null : answer,
     };
   } catch {
-    return offlineInterpret(text);
+    return offlineInterpret(text, pending);
   }
 }
 
