@@ -111,15 +111,19 @@ export function summarize(
     situationText,
     overallTier,
     safetyTriggered,
-    results: results.map((r) => ({
-      instrumentId: r.instrumentId,
-      shortName: r.shortName,
-      domain: r.domain,
-      score: r.score,
-      maxScore: r.maxScore,
-      bandLabel: r.band.label,
-      tier: r.band.tier,
-    })),
+    // Only instruments the patient actually answered belong in the trajectory —
+    // a fully-skipped instrument is "not assessed", not a real score of 0.
+    results: results
+      .filter((r) => r.answered > 0)
+      .map((r) => ({
+        instrumentId: r.instrumentId,
+        shortName: r.shortName,
+        domain: r.domain,
+        score: r.score,
+        maxScore: r.maxScore,
+        bandLabel: r.band.label,
+        tier: r.band.tier,
+      })),
   };
 }
 

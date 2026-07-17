@@ -154,19 +154,23 @@ export function BriefView({ briefs, safetyTriggered }: { briefs: Briefs; safetyT
                     <tr key={r.instrumentId} className="border-b border-slate-100 last:border-0">
                       <td className="py-1.5 pr-2 font-medium text-slate-700">{r.shortName}</td>
                       <td className="py-1.5 pr-2 tabular-nums text-slate-500">
-                        {r.score}/{r.maxScore}
+                        {r.answered === 0 ? "—" : `${r.score}/${r.maxScore}`}
                       </td>
                       <td className="py-1.5 text-slate-600">
-                        {r.band.label}
-                        {r.skipped > 0 && (
-                          <span className="ml-1 text-amber-600">· {r.skipped} skipped</span>
+                        {r.answered === 0 ? (
+                          <span className="text-amber-600">Not assessed (skipped)</span>
+                        ) : (
+                          <>
+                            {r.band.label}
+                            {r.skipped > 0 && <span className="ml-1 text-amber-600">· {r.skipped} skipped</span>}
+                          </>
                         )}
                       </td>
                       <td className="py-1.5 pl-2 text-right">
                         <span
                           className="inline-block h-2 w-2 rounded-full"
-                          style={{ background: tierColor(r.band.tier) }}
-                          title={tierLabel(r.band.tier)}
+                          style={{ background: r.answered === 0 ? "#cbd5e1" : tierColor(r.band.tier) }}
+                          title={r.answered === 0 ? "Not assessed" : tierLabel(r.band.tier)}
                         />
                       </td>
                     </tr>

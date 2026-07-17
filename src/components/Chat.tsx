@@ -95,7 +95,7 @@ export function Chat({
             onSubmit={(e) => {
               e.preventDefault();
               const t = draft.trim();
-              if (t) {
+              if (t.length >= 2) {
                 onFreeText(t);
                 setDraft("");
               }
@@ -110,7 +110,7 @@ export function Chat({
             />
             <button
               type="submit"
-              disabled={!draft.trim()}
+              disabled={draft.trim().length < 2}
               className="shrink-0 rounded-xl bg-slate-700 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-40"
             >
               Send

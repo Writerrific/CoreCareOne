@@ -297,7 +297,7 @@ async function continueAfterCurrent(session: Session, prevInstrumentId: string):
     if (added.length) {
       const labels = joinList(added.map((d) => DOMAIN_LABEL[d]));
       session.signals.push({
-        id: `sig_expand_${Date.now()}`,
+        id: `sig_expand_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         domain: added[0],
         text: `Your answers point at ${labels}, so I added a few questions.`,
         tier: "low",
@@ -354,15 +354,21 @@ export async function submitAnswer(
     return saveSession(session);
   }
 
+  // Server-side validation: the answer must be one of the item's real choices.
+  // Match by value; use the canonical label so a spoofed label can't leak into
+  // the transcript or brief. Reject anything else (no clamping to a guess).
+  const choice = item.choices.find((c) => c.value === value);
+  if (!choice) return session;
+
   const answer: Answer = {
     instrumentId: instrument.id,
     itemId: item.id,
-    value,
-    label,
+    value: choice.value,
+    label: choice.label,
     at: Date.now(),
   };
   session.answers.push(answer);
-  session.messages.push(msg({ speaker: "patient", text: label }));
+  session.messages.push(msg({ speaker: "patient", text: choice.label }));
 
   const sig = signalForAnswer(answer);
   if (sig) session.signals.push(sig);
@@ -389,11 +395,12 @@ export async function skipItem(session: Session): Promise<Session> {
 
   if (!session.skipped.includes(item.id)) session.skipped.push(item.id);
   session.messages.push(msg({ speaker: "patient", text: "Skipped" }));
+  const skippedSafety = Boolean(item.safetyCritical);
   session.signals.push({
     id: `sig_skip_${item.id}_${Date.now()}`,
     domain: instrument.domain,
-    text: `Skipped: ${item.prompt.toLowerCase()}`,
-    tier: "minimal",
+    text: skippedSafety ? "Chose to skip a safety question." : `Skipped: ${item.prompt.toLowerCase()}`,
+    tier: skippedSafety ? "low" : "minimal",
     source: `${instrument.shortName} · skipped`,
     at: Date.now(),
   });
@@ -418,7 +425,7 @@ export async function submitFreeText(session: Session, text: string): Promise<Se
   // Safety takes precedence over everything.
   if (interpreted.safety) {
     session.signals.push({
-      id: `sig_ftsafety_${Date.now()}`,
+      id: `sig_ftsafety_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       domain: "safety",
       text: "Raised a possible safety concern in their own words.",
       tier: "urgent",
@@ -546,17 +553,30 @@ export async function generateBriefs(session: Session): Promise<Briefs> {
 
   const redFlags: string[] = [];
   for (const r of results) {
+    if (r.answered === 0) continue; // fully-skipped instruments aren't a "flag" by score
     if (r.safetyFlags.length) redFlags.push(`${r.shortName}: safety item endorsed`);
     if (tierRank(r.band.tier) >= 4) redFlags.push(`${r.shortName}: ${r.band.label} (${r.score}/${r.maxScore})`);
   }
+  // A skipped safety question is itself worth a clinician's attention (dedupe per instrument).
+  const skippedSafetyInstruments = new Set<string>();
+  for (const itemId of session.skipped) {
+    const inst = getInstrument(itemId.split("_")[0]);
+    const item = inst?.items.find((i) => i.id === itemId);
+    if (item?.safetyCritical && inst) skippedSafetyInstruments.add(inst.shortName);
+  }
+  for (const shortName of skippedSafetyInstruments) redFlags.push(`${shortName}: safety question was skipped`);
 
   const suggestedFocus = results
-    .filter((r) => tierRank(r.band.tier) >= 1)
+    .filter((r) => r.answered > 0 && tierRank(r.band.tier) >= 1)
     .sort((a, b) => tierRank(b.band.tier) - tierRank(a.band.tier))
     .map((r) => `${DOMAIN_LABEL[r.domain]} (${r.shortName} ${r.band.label.toLowerCase()})`);
 
   const resultsSummary = results
-    .map((r) => `${r.shortName} ${r.score}/${r.maxScore} — ${r.band.label}${r.safetyFlags.length ? " [SAFETY FLAG]" : ""}`)
+    .map((r) =>
+      r.answered === 0
+        ? `${r.shortName} — not assessed (skipped)`
+        : `${r.shortName} ${r.score}/${r.maxScore} — ${r.band.label}${r.skipped ? ` (${r.skipped} skipped)` : ""}${r.safetyFlags.length ? " [SAFETY FLAG]" : ""}`,
+    )
     .join("\n");
 
   // Longitudinal: fold this session in (dedup-safe) and chart each instrument.
