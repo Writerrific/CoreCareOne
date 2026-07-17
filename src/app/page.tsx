@@ -12,14 +12,22 @@ function Feature({ title, body }: { title: string; body: string }) {
 export default function Home() {
   return (
     <main className="mx-auto max-w-5xl px-6 py-14">
-      <header className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-core-600 text-lg font-bold text-white">
-          C1
+      <header className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-core-600 text-lg font-bold text-white">
+            C1
+          </div>
+          <div>
+            <div className="text-lg font-semibold text-slate-900">CoreCareOne</div>
+            <div className="text-xs text-slate-500">Pre-Visit Companion · for Core Care Clinic</div>
+          </div>
         </div>
-        <div>
-          <div className="text-lg font-semibold text-slate-900">CoreCareOne</div>
-          <div className="text-xs text-slate-500">Pre-Visit Companion · for Core Care Clinic</div>
-        </div>
+        <Link
+          href="/clinic"
+          className="rounded-lg border border-slate-300 bg-white px-3.5 py-1.5 text-xs font-medium text-slate-600 transition hover:border-core-400 hover:text-core-700"
+        >
+          For care teams →
+        </Link>
       </header>
 
       <section className="mt-14">

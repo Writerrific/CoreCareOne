@@ -144,6 +144,10 @@ npm run build
   carries forward prior concerns, and each instrument's trajectory is charted across check-ins.
   *(Prototype identity = the name entered; production needs real patient auth + a HIPAA datastore.)*
 - ✅ **Adaptive composition** — multi-signal intake + mid-session pathway expansion (above).
+- ✅ **Care Team Console** (`/clinic`) — the staff-facing side: a triage queue of completed
+  check-ins sorted by risk tier (safety histories float to the top), tier-count tiles that filter,
+  and a per-patient view with cross-visit trend charts, check-in history, and red flags.
+  *(Prototype: no auth — production requires clinician login, role-based access, and an audit log.)*
 - **EHR / scheduling handoff** — push the clinician brief + booking into the clinic's system.
 - **Multi-tenant config** — instrument library + situation templates as per-clinic configuration.
 - **Clinician review console** — a queue of incoming briefs, triaged by tier.

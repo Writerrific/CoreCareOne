@@ -68,6 +68,11 @@ export function getPatient(patientId: string): PatientRecord | undefined {
   return store().get(patientId);
 }
 
+/** All patients with at least one completed session (for the care-team console). */
+export function listPatients(): PatientRecord[] {
+  return Array.from(store().values()).filter((p) => p.sessions.length > 0);
+}
+
 /** How many completed check-ins this patient already has (0 for new). */
 export function priorVisitCount(patientId: string): number {
   return store().get(patientId)?.sessions.length ?? 0;
@@ -104,6 +109,7 @@ export function summarize(
   overallTier: RiskTier,
   safetyTriggered: boolean,
   results: InstrumentResult[],
+  redFlags: string[] = [],
 ): SessionSummary {
   return {
     sessionId,
@@ -111,6 +117,7 @@ export function summarize(
     situationText,
     overallTier,
     safetyTriggered,
+    redFlags,
     // Only instruments the patient actually answered belong in the trajectory —
     // a fully-skipped instrument is "not assessed", not a real score of 0.
     results: results

@@ -13,10 +13,25 @@ export function IntakeForm({ onStart, busy }: { onStart: (p: IntakePayload) => v
   const [name, setName] = useState("");
   const [text, setText] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
+  // Remember what we autofilled so switching chips replaces stale autofill text
+  // (but never clobbers something the person typed themselves).
+  const [autofilled, setAutofilled] = useState<string | null>(null);
 
   function pickSituation(id: string, label: string) {
+    if (selected === id) {
+      // Tap again to deselect; clear the text only if it's still our autofill.
+      setSelected(null);
+      if (text === autofilled) {
+        setText("");
+        setAutofilled(null);
+      }
+      return;
+    }
     setSelected(id);
-    if (!text.trim()) setText(label);
+    if (!text.trim() || text === autofilled) {
+      setText(label);
+      setAutofilled(label);
+    }
   }
 
   const canStart = text.trim().length > 2 && !busy;

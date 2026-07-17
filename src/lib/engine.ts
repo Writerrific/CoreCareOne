@@ -12,6 +12,7 @@ import type {
   ChatMessage,
   Domain,
   Instrument,
+  InstrumentResult,
   PatientContext,
   SchedulingRecommendation,
   Session,
@@ -464,6 +465,25 @@ export async function submitFreeText(session: Session, text: string): Promise<Se
   return saveSession(session);
 }
 
+/** Red flags for a session: endorsed safety items, severe bands, skipped safety questions. */
+function computeRedFlags(session: Session, results: InstrumentResult[]): string[] {
+  const redFlags: string[] = [];
+  for (const r of results) {
+    if (r.answered === 0) continue; // fully-skipped instruments aren't a "flag" by score
+    if (r.safetyFlags.length) redFlags.push(`${r.shortName}: safety item endorsed`);
+    if (tierRank(r.band.tier) >= 4) redFlags.push(`${r.shortName}: ${r.band.label} (${r.score}/${r.maxScore})`);
+  }
+  // A skipped safety question is itself worth a clinician's attention (dedupe per instrument).
+  const skippedSafetyInstruments = new Set<string>();
+  for (const itemId of session.skipped) {
+    const inst = getInstrument(itemId.split("_")[0]);
+    const item = inst?.items.find((i) => i.id === itemId);
+    if (item?.safetyCritical && inst) skippedSafetyInstruments.add(inst.shortName);
+  }
+  for (const shortName of skippedSafetyInstruments) redFlags.push(`${shortName}: safety question was skipped`);
+  return redFlags;
+}
+
 /** Persist a completed session to the patient's longitudinal record (named patients only). */
 function persistSummary(session: Session): void {
   if (!session.patientId || session.patientId.startsWith("anon_")) return;
@@ -475,6 +495,7 @@ function persistSummary(session: Session): void {
     tier,
     session.safetyTriggered,
     results,
+    computeRedFlags(session, results),
   );
   recordSession(session.patientId, session.context.displayName, summary);
 }
@@ -551,20 +572,7 @@ export async function generateBriefs(session: Session): Promise<Briefs> {
   const results = session.results.length ? session.results : computeResults(session.answers, session.skipped);
   const tier = session.safetyTriggered ? "urgent" : overallTier(results);
 
-  const redFlags: string[] = [];
-  for (const r of results) {
-    if (r.answered === 0) continue; // fully-skipped instruments aren't a "flag" by score
-    if (r.safetyFlags.length) redFlags.push(`${r.shortName}: safety item endorsed`);
-    if (tierRank(r.band.tier) >= 4) redFlags.push(`${r.shortName}: ${r.band.label} (${r.score}/${r.maxScore})`);
-  }
-  // A skipped safety question is itself worth a clinician's attention (dedupe per instrument).
-  const skippedSafetyInstruments = new Set<string>();
-  for (const itemId of session.skipped) {
-    const inst = getInstrument(itemId.split("_")[0]);
-    const item = inst?.items.find((i) => i.id === itemId);
-    if (item?.safetyCritical && inst) skippedSafetyInstruments.add(inst.shortName);
-  }
-  for (const shortName of skippedSafetyInstruments) redFlags.push(`${shortName}: safety question was skipped`);
+  const redFlags = computeRedFlags(session, results);
 
   const suggestedFocus = results
     .filter((r) => r.answered > 0 && tierRank(r.band.tier) >= 1)
@@ -586,6 +594,7 @@ export async function generateBriefs(session: Session): Promise<Briefs> {
     tier,
     session.safetyTriggered,
     results,
+    redFlags,
   );
   const trajectories = computeTrajectories(session.patientId, currentSummary);
   const trajectoryNotes = trajectories

@@ -185,6 +185,8 @@ export interface SessionSummary {
   situationText: string;
   overallTier: RiskTier;
   safetyTriggered: boolean;
+  /** Red flags computed at completion (older stored records may lack this). */
+  redFlags?: string[];
   results: {
     instrumentId: string;
     shortName: string;

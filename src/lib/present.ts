@@ -63,6 +63,19 @@ export function urgencyLabel(u: "same_day" | "within_week" | "routine" | "self_d
   }
 }
 
+/** Compact "3d ago" / "2w ago" for queue rows. */
+export function timeAgo(then: number): string {
+  const mins = Math.round((Date.now() - then) / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 14) return `${days}d ago`;
+  if (days < 60) return `${Math.round(days / 7)}w ago`;
+  return `${Math.round(days / 30)}mo ago`;
+}
+
 export function domainLabel(d: Domain): string {
   return {
     mood: "Mood",
